@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teacher Script Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface-raised: #22252f;
+      --surface-overlay: #2a2d3a;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(99, 102, 241, 0.5);
+      --text-primary: #e8eaed;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --accent-soft: rgba(99, 102, 241, 0.12);
+      --accent-glow: rgba(99, 102, 241, 0.25);
+      --success: #34d399;
+      --success-soft: rgba(52, 211, 153, 0.12);
+      --error: #f87171;
+      --error-soft: rgba(248, 113, 113, 0.12);
+      --user-bg: rgba(99, 102, 241, 0.1);
+      --user-border: rgba(99, 102, 241, 0.2);
+      --assistant-bg: rgba(255, 255, 255, 0.03);
+      --assistant-border: rgba(255, 255, 255, 0.06);
+      --system-bg: rgba(251, 191, 36, 0.06);
+      --system-border: rgba(251, 191, 36, 0.15);
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+      --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+      --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    /* --- Layout --- */
+    .app {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      height: 100vh;
+    }
+
+    /* --- Sidebar --- */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .sidebar-header {
+      padding: 24px 20px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, var(--accent), #a78bfa);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .logo-text {
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .sidebar-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .sidebar-body {
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+    }
+
+    .section-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: -6px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .field label {
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    input, select, textarea {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.85rem;
+      color: var(--text-primary);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      width: 100%;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    input::placeholder, textarea::placeholder {
+      color: var(--text-muted);
+    }
+
+    select {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%236b7280' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
+    }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 0;
+    }
+
+    /* --- Buttons --- */
+    button {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 500;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 9px 16px;
+      cursor: pointer;
+      transition: all var(--transition);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      background: var(--surface-raised);
+      color: var(--text-primary);
+    }
+
+    .btn-danger-ghost {
+      background: transparent;
+      color: var(--error);
+      border: 1px solid rgba(248, 113, 113, 0.2);
+    }
+
+    .btn-danger-ghost:hover:not(:disabled) {
+      background: var(--error-soft);
+    }
+
+    .sidebar-actions {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+
+    .sidebar-actions button {
+      flex: 1;
+    }
+
+    /* --- Status --- */
+    .status-bar {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .status-dot.online { background: var(--success); box-shadow: 0 0 6px rgba(52, 211, 153, 0.5); }
+    .status-dot.offline { background: var(--error); box-shadow: 0 0 6px rgba(248, 113, 113, 0.5); }
+
+    /* --- Chat area --- */
+    .chat-area {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      min-width: 0;
+    }
+
+    .chat-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .topbar-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .topbar-hint {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    .mode-badge {
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: var(--surface-overlay);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+
+    .mode-badge.generated { background: var(--success-soft); color: var(--success); border-color: rgba(52, 211, 153, 0.2); }
+    .mode-badge.revised { background: var(--accent-soft); color: var(--accent-hover); border-color: rgba(99, 102, 241, 0.2); }
+    .mode-badge.error { background: var(--error-soft); color: var(--error); border-color: rgba(248, 113, 113, 0.2); }
+
+    /* --- Messages --- */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      scroll-behavior: smooth;
+    }
+
+    .messages::-webkit-scrollbar { width: 6px; }
+    .messages::-webkit-scrollbar-track { background: transparent; }
+    .messages::-webkit-scrollbar-thumb { background: var(--surface-overlay); border-radius: 3px; }
+    .messages::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    .message {
+      max-width: 82%;
+      animation: slideIn 200ms ease-out;
+    }
+
+    .message.user { margin-left: auto; }
+
+    .msg-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .msg-avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .message.user .msg-avatar { background: var(--accent-soft); color: var(--accent-hover); }
+    .message.assistant .msg-avatar { background: var(--success-soft); color: var(--success); }
+    .message.system .msg-avatar { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
+
+    .msg-sender {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .msg-bubble {
+      padding: 14px 18px;
+      border-radius: var(--radius-lg);
+      line-height: 1.6;
+      font-size: 0.88rem;
+    }
+
+    .message.user .msg-bubble {
+      background: var(--user-bg);
+      border: 1px solid var(--user-border);
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.assistant .msg-bubble {
+      background: var(--assistant-bg);
+      border: 1px solid var(--assistant-border);
+      border-bottom-left-radius: 4px;
+    }
+
+    .message.system .msg-bubble {
+      background: var(--system-bg);
+      border: 1px solid var(--system-border);
+      font-size: 0.82rem;
+      border-bottom-left-radius: 4px;
+    }
+
+    .msg-bubble p {
+      margin: 0;
+      white-space: pre-wrap;
+    }
+
+    /* --- Script output --- */
+    .script-container {
+      margin-top: 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .script-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      background: var(--surface-raised);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .script-toolbar-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .script-toolbar button {
+      padding: 4px 10px;
+      font-size: 0.72rem;
+      border-radius: 6px;
+    }
+
+    .script-box {
+      padding: 16px 18px;
+      background: var(--surface);
+      white-space: pre-wrap;
+      overflow-y: auto;
+      max-height: 500px;
+      line-height: 1.65;
+      font-size: 0.84rem;
+      font-family: 'JetBrains Mono', 'Consolas', monospace;
+      color: var(--text-secondary);
+    }
+
+    .script-box::-webkit-scrollbar { width: 6px; }
+    .script-box::-webkit-scrollbar-track { background: transparent; }
+    .script-box::-webkit-scrollbar-thumb { background: var(--surface-overlay); border-radius: 3px; }
+
+    /* --- Composer --- */
+    .composer {
+      padding: 20px 28px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .composer-inner {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+
+    .composer-inner:focus-within {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .composer textarea {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 4px 0;
+      min-height: 44px;
+      max-height: 160px;
+      resize: none;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    .composer textarea:focus {
+      outline: none;
+      border-color: transparent;
+      box-shadow: none;
+    }
+
+    .send-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: var(--radius-sm);
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .send-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .composer-hint {
+      margin-top: 8px;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* --- Loading animation --- */
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 14px 18px;
+    }
+
+    .typing-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      animation: typingBounce 1.4s ease-in-out infinite;
+    }
+
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes typingBounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-6px); opacity: 1; }
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* --- Empty state --- */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 16px;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .empty-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: var(--radius-lg);
+      background: var(--accent-soft);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+    }
+
+    .empty-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+
+    .empty-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      max-width: 400px;
+      line-height: 1.6;
+    }
+
+    .suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+
+    .suggestion {
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+
+    .suggestion:hover {
+      border-color: var(--accent);
+      color: var(--accent-hover);
+      background: var(--accent-soft);
+    }
+
+    /* --- Responsive --- */
+    @media (max-width: 900px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <div class="logo-icon">T</div>
+          <span class="logo-text">Teacher Script Studio</span>
+        </div>
+        <p class="sidebar-subtitle">Generate and refine classroom-ready lesson scripts with AI.</p>
+      </div>
+
+      <div class="sidebar-body">
+        <span class="section-label">Lesson Settings</span>
+
+        <div class="field">
+          <label for="duration">Lesson Duration (minutes)</label>
+          <input id="duration" type="number" min="5" max="120" value="40" placeholder="40">
+        </div>
+
+        <p class="sidebar-subtitle" style="margin-top: 4px;">The system automatically detects the subject, grade level, and topic from your message and decides whether to use your uploaded source documents.</p>
+      </div>
+
+      <div class="sidebar-actions">
+        <button id="resetButton" class="btn-danger-ghost" type="button">Reset Chat</button>
+      </div>
+
+      <div class="status-bar">
+        <div id="statusDot" class="status-dot"></div>
+        <span id="statusText">Checking connection...</span>
+      </div>
+    </aside>
+
+    <!-- Chat Area -->
+    <main class="chat-area">
+      <div class="chat-topbar">
+        <div class="topbar-left">
+          <span class="topbar-title">Conversation</span>
+          <span class="topbar-hint">Lesson scripts are generated using your uploaded source documents.</span>
+        </div>
+        <div id="modeBadge" class="mode-badge">Waiting</div>
+      </div>
+
+      <div id="messages" class="messages">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">T</div>
+          <div class="empty-title">Start a new lesson script</div>
+          <div class="empty-desc">Describe the lesson you need and I'll generate a full classroom-ready, word-for-word script you can read aloud.</div>
+          <div class="suggestions">
+            <button class="suggestion" data-prompt="Create a 40-minute mathematics lesson on integrals for Grade 12">40min math - integrals</button>
+            <button class="suggestion" data-prompt="Create a 30-minute science lesson on ecosystems for Grade 6">30min science - ecosystems</button>
+            <button class="suggestion" data-prompt="Create a 20-minute health lesson on nutrition for Grade 8">20min health - nutrition</button>
+          </div>
+        </div>
+      </div>
+
+      <form id="chatForm" class="composer">
+        <div class="composer-inner">
+          <textarea id="messageInput" placeholder="Describe the lesson script you need..." rows="1" required></textarea>
+          <button id="sendButton" class="btn-primary send-btn" type="submit" title="Send message">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div class="composer-hint">Press Enter to send, Shift+Enter for a new line</div>
+      </form>
+    </main>
+  </div>
+
+  <script>
+    const state = {
+      originalRequest: null,
+      currentScript: null,
+      loading: false,
+      lastMode: "waiting",
+      hasMessages: false
+    };
+
+    const el = {
+      duration: document.getElementById("duration"),
+      statusDot: document.getElementById("statusDot"),
+      statusText: document.getElementById("statusText"),
+      modeBadge: document.getElementById("modeBadge"),
+      messages: document.getElementById("messages"),
+      emptyState: document.getElementById("emptyState"),
+      chatForm: document.getElementById("chatForm"),
+      messageInput: document.getElementById("messageInput"),
+      sendButton: document.getElementById("sendButton"),
+      resetButton: document.getElementById("resetButton")
+    };
+
+    /* --- Auto-resize textarea --- */
+    el.messageInput.addEventListener("input", () => {
+      el.messageInput.style.height = "auto";
+      el.messageInput.style.height = Math.min(el.messageInput.scrollHeight, 160) + "px";
+    });
+
+    /* --- Enter to send, Shift+Enter for newline --- */
+    el.messageInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        el.chatForm.dispatchEvent(new Event("submit", { cancelable: true }));
+      }
+    });
+
+    /* --- State helpers --- */
+    function setLoading(isLoading) {
+      state.loading = isLoading;
+      el.sendButton.disabled = isLoading;
+      el.resetButton.disabled = isLoading;
+
+      if (isLoading) {
+        showTypingIndicator();
+      } else {
+        removeTypingIndicator();
+      }
+    }
+
+    function setMode(mode) {
+      state.lastMode = mode;
+      const badge = el.modeBadge;
+      badge.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+      badge.className = "mode-badge";
+      if (mode === "generated" || mode === "grounded" || mode === "fallback") badge.classList.add("generated");
+      else if (mode === "revised") badge.classList.add("revised");
+      else if (mode === "refuse" || mode === "input_error") badge.classList.add("error");
+    }
+
+    function hideEmptyState() {
+      if (el.emptyState) {
+        el.emptyState.remove();
+        state.hasMessages = true;
+      }
+    }
+
+    /* --- Typing indicator --- */
+    function showTypingIndicator() {
+      if (document.getElementById("typingIndicator")) return;
+      const wrapper = document.createElement("div");
+      wrapper.id = "typingIndicator";
+      wrapper.className = "message assistant";
+      wrapper.innerHTML = `
+        <div class="msg-header">
+          <div class="msg-avatar">A</div>
+          <span class="msg-sender">Assistant</span>
+        </div>
+        <div class="msg-bubble">
+          <div class="typing-indicator">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+          </div>
+        </div>
+      `;
+      el.messages.appendChild(wrapper);
+      el.messages.scrollTop = el.messages.scrollHeight;
+    }
+
+    function removeTypingIndicator() {
+      const indicator = document.getElementById("typingIndicator");
+      if (indicator) indicator.remove();
+    }
+
+    /* --- Message rendering --- */
+    function appendMessage(role, text, scriptText = null) {
+      hideEmptyState();
+
+      const wrapper = document.createElement("div");
+      wrapper.className = `message ${role}`;
+
+      const avatarLetter = role === "user" ? "Y" : role === "system" ? "!" : "A";
+      const senderName = role === "user" ? "You" : role === "system" ? "System" : "Assistant";
+
+      const header = document.createElement("div");
+      header.className = "msg-header";
+      header.innerHTML = `
+        <div class="msg-avatar">${avatarLetter}</div>
+        <span class="msg-sender">${senderName}</span>
+      `;
+      wrapper.appendChild(header);
+
+      const bubble = document.createElement("div");
+      bubble.className = "msg-bubble";
+      const bodyP = document.createElement("p");
+      bodyP.textContent = text;
+      bubble.appendChild(bodyP);
+
+      if (scriptText) {
+        const container = document.createElement("div");
+        container.className = "script-container";
+
+        const toolbar = document.createElement("div");
+        toolbar.className = "script-toolbar";
+        toolbar.innerHTML = `
+          <span class="script-toolbar-label">Generated Script</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select class="tts-engine" style="padding:4px 8px;font-size:0.72rem;border-radius:6px;background:var(--surface-raised);color:var(--text-primary);border:1px solid var(--border);">
+              <option value="edge">Fast Audio</option>
+              <option value="bark">Emotional Audio (slow)</option>
+            </select>
+            <button class="btn-ghost audio-btn" type="button">Generate Audio</button>
+            <button class="btn-ghost copy-btn" type="button">Copy</button>
+          </div>
+        `;
+        container.appendChild(toolbar);
+
+        const box = document.createElement("div");
+        box.className = "script-box";
+        box.textContent = scriptText;
+        container.appendChild(box);
+
+        bubble.appendChild(container);
+
+        // Copy handler
+        toolbar.querySelector(".copy-btn").addEventListener("click", () => {
+          navigator.clipboard.writeText(scriptText).then(() => {
+            const btn = toolbar.querySelector(".copy-btn");
+            btn.textContent = "Copied!";
+            setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+          });
+        });
+
+        // Audio generation handler
+        toolbar.querySelector(".audio-btn").addEventListener("click", async () => {
+          const audioBtn = toolbar.querySelector(".audio-btn");
+          const engineSelect = toolbar.querySelector(".tts-engine");
+          const engine = engineSelect.value;
+          audioBtn.disabled = true;
+          engineSelect.disabled = true;
+          audioBtn.textContent = engine === "bark" ? "Generating (slow)..." : "Generating...";
+
+          try {
+            const res = await fetch("/tts/generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ script: scriptText, engine })
+            });
+            const { job_id } = await res.json();
+
+            // Poll for completion
+            const poll = setInterval(async () => {
+              const statusRes = await fetch(`/tts/status/${job_id}`);
+              const statusData = await statusRes.json();
+
+              if (statusData.status === "done") {
+                clearInterval(poll);
+                audioBtn.textContent = "Download Audio";
+                audioBtn.disabled = false;
+                audioBtn.onclick = () => {
+                  window.open(`/tts/download/${job_id}`, "_blank");
+                };
+
+                // Also add inline player
+                const player = document.createElement("audio");
+                player.controls = true;
+                player.src = `/tts/download/${job_id}`;
+                player.style.cssText = "width:100%;margin-top:8px;";
+                container.appendChild(player);
+              } else if (statusData.status === "error") {
+                clearInterval(poll);
+                audioBtn.textContent = "Audio Failed";
+                audioBtn.disabled = false;
+                console.error("TTS error:", statusData.error);
+              }
+            }, 5000);
+          } catch (err) {
+            audioBtn.textContent = "Audio Failed";
+            audioBtn.disabled = false;
+            console.error("TTS request failed:", err);
+          }
+        });
+      }
+
+      wrapper.appendChild(bubble);
+      el.messages.appendChild(wrapper);
+      el.messages.scrollTop = el.messages.scrollHeight;
+    }
+
+    /* --- Build API payload --- */
+    function buildPayload(message) {
+      const payload = {
+        message,
+        retrieval_mode: "auto"
+      };
+
+      if (state.currentScript) {
+        payload.current_script = state.currentScript;
+        payload.original_request = state.originalRequest;
+      }
+
+      return payload;
+    }
+
+    /* --- Health check --- */
+    async function checkHealth() {
+      try {
+        const response = await fetch("/health");
+        if (!response.ok) throw new Error();
+        el.statusDot.className = "status-dot online";
+        el.statusText.textContent = "API connected";
+      } catch {
+        el.statusDot.className = "status-dot offline";
+        el.statusText.textContent = "API offline - start server with: uvicorn app.main:app --reload";
+      }
+    }
+
+    /* --- Send message --- */
+    async function sendMessage(message) {
+      setLoading(true);
+
+      try {
+        const response = await fetch("/chat/script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildPayload(message))
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || "Request failed");
+        }
+
+        const data = await response.json();
+        setMode(data.chat_mode || data.generation_mode || "ready");
+
+        if (data.chat_mode !== "refuse") {
+          state.currentScript = data.lesson_text;
+          state.originalRequest = state.originalRequest || data.user_prompt;
+        }
+
+        appendMessage("assistant", data.assistant_message || data.source_notice, data.lesson_text);
+      } catch (error) {
+        appendMessage("system", `Request failed: ${error.message}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    /* --- Form submit --- */
+    el.chatForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const message = el.messageInput.value.trim();
+      if (!message || state.loading) return;
+
+      // Inject duration into the prompt if the user set one and didn't mention it
+      const dur = Number(el.duration.value);
+      let finalMessage = message;
+      if (dur && !/\d+\s*-?\s*minute/i.test(message)) {
+        finalMessage = `${message} (${dur}-minute lesson)`;
+      }
+
+      appendMessage("user", finalMessage);
+      el.messageInput.value = "";
+      el.messageInput.style.height = "auto";
+      await sendMessage(finalMessage);
+    });
+
+    /* --- Reset --- */
+    el.resetButton.addEventListener("click", () => {
+      state.originalRequest = null;
+      state.currentScript = null;
+      state.hasMessages = false;
+      setMode("waiting");
+      el.messages.innerHTML = `
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">T</div>
+          <div class="empty-title">Start a new lesson script</div>
+          <div class="empty-desc">Describe the lesson you need and I'll generate a full classroom-ready, word-for-word script you can read aloud.</div>
+          <div class="suggestions">
+            <button class="suggestion" data-prompt="Create a 40-minute mathematics lesson on integrals for Grade 12">40min math - integrals</button>
+            <button class="suggestion" data-prompt="Create a 30-minute science lesson on ecosystems for Grade 6">30min science - ecosystems</button>
+            <button class="suggestion" data-prompt="Create a 20-minute health lesson on nutrition for Grade 8">20min health - nutrition</button>
+          </div>
+        </div>
+      `;
+
+      // Rebind suggestion clicks after reset
+      bindSuggestions();
+    });
+
+    /* --- Suggestion clicks --- */
+    function bindSuggestions() {
+      document.querySelectorAll(".suggestion").forEach(btn => {
+        btn.addEventListener("click", () => {
+          el.messageInput.value = btn.dataset.prompt;
+          el.messageInput.focus();
+          el.messageInput.dispatchEvent(new Event("input"));
+        });
+      });
+    }
+
+    // Init
+    checkHealth();
+    bindSuggestions();
+  </script>
+</body>
+</html>
