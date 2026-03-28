@@ -637,3 +637,40 @@ Also update:
   - For a typical modification like "make the introduction more engaging" on a 40-minute script with 8 blocks, only 1-2 blocks are regenerated instead of all 8, yielding roughly 4-8x faster revisions.
   - Falls back to full regeneration if the script cannot be parsed into blocks.
 - Follow-up: none.
+
+## 2026-03-28
+- Change: async job pattern for `/chat/script` endpoint. `POST /chat/script` now returns a `job_id` immediately. `GET /chat/status/{job_id}` returns status (`processing` / `done` / `error`) and the full result when done. Frontend polls every 3 s with a progress bar.
+- Reason: Cloudflare tunnel (and any reverse proxy) imposes a ~100 s hard timeout on open connections. Lesson generation takes 4–6 minutes, causing 524 errors. The async pattern keeps every individual HTTP request short.
+- Details:
+  - `app/main.py`: added `_script_jobs` dict, `_run_script()` background task, changed `/chat/script` to use `BackgroundTasks`, added `GET /chat/status/{job_id}`.
+  - `streamlit_app.py`: `call_chat_api()` now submits the job then polls `/chat/status/{job_id}` with a `st.progress` bar (300 iterations × 3 s = 15-minute ceiling).
+- Follow-up: none.
+
+- Change: fixed `st.secrets.get()` crash when no `.streamlit/secrets.toml` exists locally.
+- Reason: Streamlit raises `StreamlitSecretNotFoundError` when no secrets file is present at all, rather than returning the default value.
+- Details: wrapped `st.secrets.get()` in try/except; created `.streamlit/secrets.toml` (gitignored) for local dev with `API_BASE = "http://localhost:8000"`.
+- Follow-up: when deploying to Streamlit Cloud, set `API_BASE` in the app's Secrets settings UI.
+
+- Change: tightened domain filter to close subject-keyword bypass and added revision guard.
+- Reason: prompts like `"write a trading bot using math equations"` bypassed LLM validation because `"equation"` matched the subject keyword fast-path. Revision requests had no domain check at all.
+- Details:
+  - `pipeline.py`: subject keyword fast-path now requires BOTH a subject term AND an education keyword (e.g. lesson, teach, classroom).
+  - `chatbot.py`: `chat()` checks off-topic revision requests against a revision-verb allowlist (`make`, `add`, `change`, `expand`, etc.) and refuses if neither education-related nor a recognised revision command.
+- Follow-up: monitor false-positive refusals on legitimate short revision commands.
+
+- Change: fixed BM25 subject filter bypass in hybrid retrieval.
+- Reason: BM25 searched the full corpus without subject filtering. Queries containing words like `"script"` matched CS chunks about scripting languages, which entered the RRF pool and appeared in results alongside calculus chunks.
+- Details: `retriever.py` `_hybrid_retrieve()` now accepts `subject` and `grade_level` params; BM25-only candidates have their payloads fetched and filtered by subject/grade before entering the RRF pool. Grade-level stored as list or string is handled.
+- Follow-up: none.
+
+- Change: fixed embedding vector space mismatch — restored retrieval scores to ~0.7 range.
+- Reason: the query instruction prefix was `"Instruct: Given a teacher's request...\nQuery: "` (designed for e5-mistral-7b), but the embedding model is `nomic-embed-text`. Documents were indexed with plain text. The mismatched formats put query and document vectors in different spaces, producing similarity scores of ~0.016.
+- Details:
+  - `retriever.py`: changed `_QUERY_INSTRUCTION` to `_QUERY_PREFIX = "search_query: "` (nomic-embed-text native prefix).
+  - `index_docs.py`: documents now indexed with `"search_document: " + chunk.text`.
+  - **Requires full re-indexing**: `python -m app.ingestion.run_ingestion`
+- Follow-up: after re-indexing, confirm scores return to ~0.7 for relevant queries.
+
+- Change: score display now labels RRF scores explicitly (e.g. `0.0164 (RRF)` vs plain cosine `0.732`).
+- Reason: RRF scores are intrinsically small fractions and look broken compared to cosine similarity scores without context.
+- Follow-up: none.
