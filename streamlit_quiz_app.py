@@ -7,6 +7,7 @@ Run with: streamlit run streamlit_quiz_app.py
 Requires the FastAPI server: uvicorn app.main:app
 """
 
+import re
 import streamlit as st
 import requests
 import time
@@ -30,6 +31,9 @@ for key, default in [
     ("source_notice", None),
     ("retrieved_chunks", []),
     ("citations", []),
+    ("awaiting_clarification", False),
+    ("last_payload", None),
+    ("chat_history", []),   # list of {"role": "user"|"assistant", "content": str}
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -77,7 +81,22 @@ with st.sidebar:
     except Exception:
         st.error("API: unreachable ✗")
 
-# ── Helper: submit job and poll ────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+_CLARIFICATION_RE = re.compile(
+    r"(I'?d like to help|Could you provide more detail|request clarification"
+    r"|lacks specific objectives|more information|please provide)",
+    re.IGNORECASE,
+)
+_QUESTION_RE = re.compile(r"(?m)^[\*#\s]*(?:Q\d+|Question\s+\d+|\d+[\.\)])\s+", re.IGNORECASE)
+
+
+def _is_clarification(text: str) -> bool:
+    """Return True if the model is asking for more detail rather than generating questions."""
+    has_clarification_phrase = bool(_CLARIFICATION_RE.search(text))
+    has_questions = bool(_QUESTION_RE.search(text))
+    return has_clarification_phrase and not has_questions
+
 
 def call_quiz_api(payload: dict) -> dict | None:
     """Submit a quiz job and poll until complete. Returns result dict or None."""
@@ -91,7 +110,7 @@ def call_quiz_api(payload: dict) -> dict | None:
 
     progress = st.progress(0, text="Retrieving relevant source chunks…")
     start = time.time()
-    max_wait = 300  # 5-minute cap
+    max_wait = 300
 
     for i in range(max_wait):
         time.sleep(2)
@@ -115,57 +134,111 @@ def call_quiz_api(payload: dict) -> dict | None:
     st.error("Timed out waiting for quiz generation.")
     return None
 
+
+def _store_result(result: dict) -> None:
+    st.session_state.quiz_text = result.get("quiz_text", "")
+    st.session_state.generation_mode = result.get("generation_mode", "")
+    st.session_state.source_notice = result.get("source_notice", "")
+    st.session_state.retrieved_chunks = result.get("retrieved_chunks", [])
+    st.session_state.citations = result.get("citations", [])
+    st.session_state.awaiting_clarification = _is_clarification(
+        st.session_state.quiz_text
+    )
+
+
 # ── Main UI ────────────────────────────────────────────────────────────────
 
 st.title("📝 AI Quiz Generator")
 st.caption("Generates assessment questions grounded in your document corpus via RAG.")
 
-content = st.text_area(
-    "Lesson Objectives or Content",
-    height=180,
-    placeholder=(
-        "Paste lesson objectives or a brief content description here.\n\n"
-        "Example: Students will understand the structure of an atom, including "
-        "protons, neutrons, and electrons. They should know the charges of each "
-        "subatomic particle and how they are arranged in the nucleus and orbitals."
-    ),
-)
+# ── Chat history display ───────────────────────────────────────────────────
 
-generate_clicked = st.button("Generate Quiz", type="primary", use_container_width=True)
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-if generate_clicked:
-    if not content.strip():
-        st.warning("Please enter lesson objectives or content before generating.")
-    else:
+# ── Initial input or follow-up ─────────────────────────────────────────────
+
+if not st.session_state.awaiting_clarification:
+    # Normal: full settings + content area
+    content = st.text_area(
+        "Lesson Objectives or Content",
+        height=180,
+        placeholder=(
+            "Paste lesson objectives or a brief content description here.\n\n"
+            "Example: Students will understand the structure of an atom, including "
+            "protons, neutrons, and electrons. They should know the charges of each "
+            "subatomic particle and how they are arranged in the nucleus and orbitals."
+        ),
+    )
+    generate_clicked = st.button("Generate Quiz", type="primary", use_container_width=True)
+
+    if generate_clicked:
+        if not content.strip():
+            st.warning("Please enter lesson objectives or content before generating.")
+        else:
+            # Reset state for fresh run
+            st.session_state.quiz_text = None
+            st.session_state.chat_history = []
+
+            payload = {
+                "content": content.strip(),
+                "subject": subject_val,
+                "grade_level": grade_val,
+                "num_questions": num_questions,
+                "difficulty": difficulty,
+                "question_types": selected_types,
+                "retrieval_limit": retrieval_limit,
+                "retrieval_mode": "auto",
+                "retrieval_method": retrieval_method,
+            }
+            st.session_state.last_payload = payload
+            st.session_state.chat_history.append({"role": "user", "content": content.strip()})
+
+            result = call_quiz_api(payload)
+            if result:
+                _store_result(result)
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": st.session_state.quiz_text}
+                )
+            st.rerun()
+
+else:
+    # Clarification mode: show a chat-style reply input
+    st.info("The model needs more detail. Type your reply below and press **Send**.")
+
+    followup = st.chat_input("Add more detail or clarify your request…")
+
+    if st.button("↩ Start over", type="secondary"):
+        st.session_state.awaiting_clarification = False
         st.session_state.quiz_text = None
-        st.session_state.generation_mode = None
-        st.session_state.source_notice = None
-        st.session_state.retrieved_chunks = []
-        st.session_state.citations = []
+        st.session_state.chat_history = []
+        st.session_state.last_payload = None
+        st.rerun()
 
-        payload = {
-            "content": content.strip(),
-            "subject": subject_val,
-            "grade_level": grade_val,
-            "num_questions": num_questions,
-            "difficulty": difficulty,
-            "question_types": selected_types,
-            "retrieval_limit": retrieval_limit,
-            "retrieval_mode": "auto",
-            "retrieval_method": retrieval_method,
-        }
+    if followup:
+        # Merge original content + follow-up into a richer content string
+        original_content = st.session_state.last_payload["content"]
+        combined_content = (
+            f"{original_content}\n\n"
+            f"Additional context from teacher:\n{followup}"
+        )
+        st.session_state.chat_history.append({"role": "user", "content": followup})
 
-        result = call_quiz_api(payload)
+        new_payload = {**st.session_state.last_payload, "content": combined_content}
+        st.session_state.last_payload = new_payload
+
+        result = call_quiz_api(new_payload)
         if result:
-            st.session_state.quiz_text = result.get("quiz_text", "")
-            st.session_state.generation_mode = result.get("generation_mode", "")
-            st.session_state.source_notice = result.get("source_notice", "")
-            st.session_state.retrieved_chunks = result.get("retrieved_chunks", [])
-            st.session_state.citations = result.get("citations", [])
+            _store_result(result)
+            st.session_state.chat_history.append(
+                {"role": "assistant", "content": st.session_state.quiz_text}
+            )
+        st.rerun()
 
 # ── Results ────────────────────────────────────────────────────────────────
 
-if st.session_state.quiz_text:
+if st.session_state.quiz_text and not st.session_state.awaiting_clarification:
     mode = st.session_state.generation_mode
     notice = st.session_state.source_notice
 
@@ -178,7 +251,6 @@ if st.session_state.quiz_text:
     st.subheader("Generated Quiz")
     st.markdown(st.session_state.quiz_text)
 
-    # Download button
     st.download_button(
         label="⬇️ Download Quiz (.txt)",
         data=st.session_state.quiz_text,
@@ -186,7 +258,6 @@ if st.session_state.quiz_text:
         mime="text/plain",
     )
 
-    # Retrieved sources
     chunks = st.session_state.retrieved_chunks
     if chunks:
         with st.expander(f"📚 Retrieved Sources ({len(chunks)} chunks)", expanded=False):
@@ -203,7 +274,6 @@ if st.session_state.quiz_text:
                 with st.expander("Show chunk text", expanded=False):
                     st.text(chunk.get("text", "")[:800])
 
-    # Citations
     citations = st.session_state.citations
     if citations:
         with st.expander(f"🔖 Citations ({len(citations)})", expanded=False):
