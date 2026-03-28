@@ -4,10 +4,7 @@ from app.services.qdrant_client import get_qdrant_client
 from app.config import settings
 
 
-_QUERY_INSTRUCTION = (
-    "Instruct: Given a teacher's request for a classroom lesson, "
-    "retrieve the most relevant educational textbook passage\nQuery: "
-)
+_QUERY_PREFIX = "search_query: "  # nomic-embed-text task prefix for queries
 
 
 def _point_to_chunk(point, score: float) -> dict:
@@ -45,7 +42,7 @@ def retrieve_chunks(
       "hybrid" — dense + BM25, merged with Reciprocal Rank Fusion (RRF)
     """
     query_text = f"{query}\nTopic focus: {topic}" if topic else query
-    query_vector = embed_texts([_QUERY_INSTRUCTION + query_text])[0]
+    query_vector = embed_texts([_QUERY_PREFIX + query_text])[0]
     client = get_qdrant_client()
 
     conditions = []

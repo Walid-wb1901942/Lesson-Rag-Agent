@@ -28,7 +28,7 @@ def index_chunks(chunks: list[DocumentChunk]) -> None:
 
     for start in range(0, len(chunks), upsert_batch_size):
         chunk_batch = chunks[start : start + upsert_batch_size]
-        texts = [chunk.text for chunk in chunk_batch]
+        texts = ["search_document: " + chunk.text for chunk in chunk_batch]
         vectors = embed_texts(texts)
 
         if not collection_ready:
