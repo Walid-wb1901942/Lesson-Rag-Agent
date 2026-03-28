@@ -151,11 +151,12 @@ def _store_result(result: dict) -> None:
 st.title("📝 AI Quiz Generator")
 st.caption("Generates assessment questions grounded in your document corpus via RAG.")
 
-# ── Chat history display ───────────────────────────────────────────────────
+# ── Chat history display (only shown during clarification rounds) ──────────
 
-for msg in st.session_state.chat_history:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+if st.session_state.awaiting_clarification:
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
 # ── Initial input or follow-up ─────────────────────────────────────────────
 
