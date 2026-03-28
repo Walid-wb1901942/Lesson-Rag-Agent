@@ -10,7 +10,10 @@ import streamlit as st
 import requests
 import time
 
-API_BASE = st.secrets.get("API_BASE", "http://localhost:8000")
+try:
+    API_BASE = st.secrets.get("API_BASE", "http://localhost:8000")
+except Exception:
+    API_BASE = "http://localhost:8000"
 
 st.set_page_config(
     page_title="Lesson RAG Agent",
