@@ -1,11 +1,10 @@
-from app.services.lesson_generator import generate_lesson_from_query
+from app.services.pipeline import ScriptPipeline
 
 
 def main():
-    user_prompt = "Create a 40-minute Grade 12 Englsish lesson on Shakespear with a class activity and short exit ticket."
-
-    result = generate_lesson_from_query(
-        user_prompt=user_prompt,
+    agent = ScriptPipeline()
+    result = agent.run(
+        user_prompt="Create a 40-minute Grade 12 English lesson on Shakespeare with a class activity and short exit ticket.",
         subject="literature",
         grade_level="12",
         topic="",

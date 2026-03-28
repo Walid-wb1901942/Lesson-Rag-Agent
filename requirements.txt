@@ -10,6 +10,7 @@ tiktoken
 tqdm
 scipy
 numpy
+rank-bm25
 streamlit
 edge-tts
 pydub

@@ -66,7 +66,6 @@ def load_pdf(path: Path, manifest: dict, source_root: Path | None = None) -> lis
                 title=file_meta.get("title", path.stem),
                 subject=file_meta.get("subject"),
                 grade_level=file_meta.get("grade_level"),
-                curriculum=file_meta.get("curriculum"),
                 topic=file_meta.get("topic"),
                 source_type=file_meta.get("source_type", "pdf"),
                 language=file_meta.get("language", "en"),

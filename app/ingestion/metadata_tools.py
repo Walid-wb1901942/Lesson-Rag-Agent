@@ -111,7 +111,6 @@ def build_suggested_metadata(pdf_name: str) -> dict:
         "title": Path(pdf_name).stem,
         "subject": infer_subject(pdf_name),
         "grade_level": infer_grade_level(pdf_name),
-        "curriculum": "general",
         "topic": infer_topic(pdf_name),
         "source_type": infer_source_type(pdf_name),
         "language": "en",
@@ -185,15 +184,13 @@ Return ONLY valid JSON with exactly these keys:
 - title
 - subject
 - grade_level
-- curriculum
 - topic
 - source_type
 - language
 
 Rules:
 - `subject` should be a short value like "mathematics", "science", "literature", "health", or "general".
-- `grade_level` can be a string like "6", a list like ["9", "10", "11", "12"], or null.
-- `curriculum` should usually be "general" unless the sample clearly indicates something else.
+- `grade_level` can be a string like "6", a list like ["9", "10", "11", "12"], "college", or null.
 - `source_type` should be one of: "textbook", "lesson_plan", "activity_bank", "rubric", "curriculum_guide", "notes", or "pdf".
 - `language` should be an ISO-like short code such as "en".
 - If uncertain, prefer a reasonable best guess rather than leaving every field null.
@@ -229,7 +226,6 @@ def suggest_metadata_with_llm(pdf_path: Path) -> dict:
         "title": parsed.get("title") or heuristic_guess["title"],
         "subject": parsed.get("subject") or heuristic_guess["subject"],
         "grade_level": parsed.get("grade_level", heuristic_guess["grade_level"]),
-        "curriculum": parsed.get("curriculum") or heuristic_guess["curriculum"],
         "topic": parsed.get("topic") or heuristic_guess["topic"],
         "source_type": parsed.get("source_type") or heuristic_guess["source_type"],
         "language": parsed.get("language") or heuristic_guess["language"],

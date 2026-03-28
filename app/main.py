@@ -5,7 +5,7 @@ from fastapi import BackgroundTasks, FastAPI, Response
 from fastapi.responses import FileResponse
 
 from app.schemas import LessonChatRequest, LessonChatResponse, LessonRequest, LessonResponse, TTSRequest
-from app.services.agent import LessonPlanningAgent
+from app.services.pipeline import ScriptPipeline
 from app.services.chatbot import LessonScriptChatbot
 
 app = FastAPI(
@@ -14,8 +14,8 @@ app = FastAPI(
     version="0.1.0",
 )
 
-agent = LessonPlanningAgent()
-chatbot = LessonScriptChatbot(agent=agent)
+pipeline = ScriptPipeline()
+chatbot = LessonScriptChatbot(pipeline=pipeline)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -24,11 +24,6 @@ def index() -> FileResponse:
     """Serve the built-in browser chat UI."""
     return FileResponse(STATIC_DIR / "index.html")
 
-
-@app.get("/old")
-def index_old() -> FileResponse:
-    """Serve the legacy browser UI."""
-    return FileResponse(STATIC_DIR / "index_old.html")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -46,14 +41,14 @@ def healthcheck() -> dict:
 @app.post("/agent/run", response_model=LessonResponse)
 def run_agent(request: LessonRequest) -> LessonResponse:
     """Generate a lesson script using the agent pipeline."""
-    result = agent.run(
+    result = pipeline.run(
         user_prompt=request.user_prompt,
         subject=request.subject,
         grade_level=request.grade_level,
-        curriculum=request.curriculum,
         topic=request.topic,
         retrieval_limit=request.retrieval_limit,
         retrieval_mode=request.retrieval_mode,
+        retrieval_method=request.retrieval_method,
     )
     return LessonResponse(**result)
 
@@ -73,10 +68,10 @@ def chat_script(request: LessonChatRequest) -> LessonChatResponse:
         original_request=request.original_request,
         subject=request.subject,
         grade_level=request.grade_level,
-        curriculum=request.curriculum,
         topic=request.topic,
         retrieval_limit=request.retrieval_limit,
         retrieval_mode=request.retrieval_mode,
+        retrieval_method=request.retrieval_method,
     )
     return LessonChatResponse(**result)
 

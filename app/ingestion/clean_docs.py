@@ -45,8 +45,8 @@ def clean_text(text: str) -> str:
     # Remove standalone page numbers
     text = re.sub(r"^\s*\d+\s*$", "", text, flags=re.MULTILINE)
 
-    # Remove common page labels
-    text = re.sub(r"Page\s+\d+\s*(of\s+\d+)?", "", text, flags=re.IGNORECASE)
+    # Remove common page labels but preserve --- [Page N] --- ingestion markers
+    text = re.sub(r"(?<!\[)Page\s+\d+\s*(of\s+\d+)?", "", text, flags=re.IGNORECASE)
 
     # Fix common math extraction artifacts
     text = clean_math_notation(text)

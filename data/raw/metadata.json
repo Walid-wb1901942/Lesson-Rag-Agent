@@ -1,49 +1,113 @@
 {
-  "c2integral.pdf": {
+  "Algebra_1_-_WEB.pdf": {
     "subject": "mathematics",
-    "grade_level": "12",
-    "curriculum": "general",
-    "topic": "integral calculus",
-    "source_type": "notes",
-    "language": "en"
-  },
-  "English_Book.pdf": {
-    "subject": "literature",
     "grade_level": ["9","10", "11","12"],
-    "curriculum": "general",
-    "topic": "introduction to literature",
+    "topic": "general algebra",
     "source_type": "textbook",
     "language": "en"
   },
-  "Calculus_Volume_1_-_WEB_l4sAIKd": {
+  "Algebra-and-Trigonometry-2e-WEB.pdf": {
     "subject": "mathematics",
-    "grade_level": ["10", "11","12"],
-    "curriculum": "general",
-    "topic": "calculus",
+    "grade_level": ["9","10", "11","12"],
+    "topic": "algebra and trigonometry",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "Biology2e-WEB.pdf": {
+    "subject": "biology",
+    "grade_level": ["9","10", "11","12"],
+    "topic": "biology",
     "source_type": "textbook",
     "language": "en"
   },
   "Introduction_To_Computer_Science_-_WEB": {
     "subject": "computer science",
     "grade_level": ["9","10", "11","12"],
-    "curriculum": "general",
     "topic": "introduction to computer science",
     "source_type": "textbook",
     "language": "en"
   },
-  "Algebra_1_-_WEB": {
+  "Calculus_Volume_1_-_WEB_l4sAIKd": {
     "subject": "mathematics",
-    "grade_level": ["7","8", "9"],
-    "curriculum": "general",
-    "topic": "algebra",
+    "grade_level": ["10","11","12"],
+    "topic": "calculus",
     "source_type": "textbook",
     "language": "en"
   },
-  "ElementaryAlgebra2e-WEB_3zxfu3Z": {
+  "Calculus_Volume_2_-_WEB": {
     "subject": "mathematics",
-    "grade_level": ["7","8", "9"],
-    "curriculum": "general",
-    "topic": "algebra",
+    "grade_level": ["10","11","12"],
+    "topic": "calculus",
+    "source_type": "textbook",
+    "language": "en"
+  },
+    "Calculus_Volume_3_-_WEB": {
+    "subject": "mathematics",
+    "grade_level": ["10","11","12"],
+    "topic": "calculus",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "Chemistry2e-WEB.pdf": {
+    "subject": "chemistry",
+    "grade_level": ["9","10", "11","12"],
+    "topic": "chemistry",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "ChemistryAtomsFirst2e-WEB.pdf": {
+    "subject": "chemistry",
+    "grade_level": ["9","10", "11","12"],
+    "topic": "chemistry",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "College_Physics_2e-WEB_7Zesafu": {
+    "subject": "physics",
+    "grade_level": "college",
+    "topic": "college physics",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "College-Algebra-2e-WEB.pdf": {
+    "subject": "mathematics",
+    "grade_level": "college",
+    "topic": "college algebra",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "ConceptsofBiology-WEB.pdf": {
+    "subject": "biology",
+    "grade_level": ["9","10", "11","12"],
+    "topic": "biology",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "Introduction_To_Computer_Science_-_WEB.pdf": {
+    "subject": "computer science",
+    "grade_level": ["9","10", "11","12"],
+    "topic": "introduction to computer science",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "Physics-WEB_Sab7RrQ": {
+    "subject": "physics",
+    "grade_level": ["9","10", "11","12"],
+    "topic": "physics",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "Precalculus_2e-WEB.pdf": {
+    "subject": "mathematics",
+    "grade_level": ["6","7", "8","9"],
+    "topic": "precalculus",
+    "source_type": "textbook",
+    "language": "en"
+  },
+  "Principles-of-Data-Science-WEB.pdf": {
+    "subject": "data science",
+    "grade_level": "college",
+    "topic": "data science",
     "source_type": "textbook",
     "language": "en"
   }

@@ -82,7 +82,6 @@ uvicorn app.main:app --reload
 
 Default local URLs:
 - Chat UI: `http://127.0.0.1:8000`
-- Old Chat UI: `http://127.0.0.1:8000/old`
 - Swagger UI: `http://127.0.0.1:8000/docs`
 - Health check: `http://127.0.0.1:8000/health`
 
@@ -104,7 +103,7 @@ Retrieval modes:
 - `auto` (default)
   infers subject, grade, and topic from the prompt, tries filtered retrieval if all three are present and exist in the corpus, falls back to all mode if corpus has data for that subject, or skips retrieval entirely (leading to fallback generation) if the inferred subject is not in the corpus at all
 - `filtered`
-  uses `subject`, `grade_level`, and `curriculum` as hard metadata filters
+  uses `subject` and `grade_level` as hard metadata filters
 - `all`
   ignores metadata filters and retrieves from the full indexed document set
 
@@ -161,11 +160,11 @@ Use this to test end-to-end retrieval and lesson-script generation:
 python -m tests.test_generate_lesson
 ```
 
-### 7. Run direct agent smoke test
-Use this to test the explicit agent entrypoint and inspect its tool trace:
+### 7. Run pipeline smoke test
+Use this to test the pipeline entrypoint and inspect its trace:
 
 ```powershell
-python -m tests.test_agent
+python -m tests.test_pipeline
 ```
 
 ### 8. Run refusal-mode smoke test
@@ -289,6 +288,7 @@ Notes on the LLM template:
 - Applies stable metadata filters
 - Uses topic as query context by default instead of exact topic filtering
 - Can also run in `all` mode to retrieve from the entire collection without metadata filters
+- Supports `retrieval_method="hybrid"`: runs dense search and BM25 independently (each fetching `k×3` candidates), merges results with Reciprocal Rank Fusion (RRF, k=60), and returns top-k
 
 [`app/services/prompt_builder.py`](/c:/Users/walee/Desktop/Masters%20Degree/LLM/lesson-rag-agent/app/services/prompt_builder.py)
 - Builds grounded prompts for literal, word-for-word classroom scripts when retrieval is strong
@@ -296,18 +296,19 @@ Notes on the LLM template:
 - Provides phased generation prompts: outline planning, per-block script writing, and closing sections
 - Provides targeted revision prompts: `build_block_identification_prompt()` (identifies which blocks a modification affects) and `build_block_revision_prompt()` (revises a single block)
 
-[`app/services/agent.py`](/c:/Users/walee/Desktop/Masters%20Degree/LLM/lesson-rag-agent/app/services/agent.py)
-- Main agent entrypoint
+[`app/services/pipeline.py`](/c:/Users/walee/Desktop/Masters%20Degree/LLM/lesson-rag-agent/app/services/pipeline.py)
+- Main pipeline entrypoint (`ScriptPipeline`)
 - Orchestrates:
   - domain check
-  - retrieval
+  - retrieval (dense or hybrid dense+BM25 with RRF)
   - generation mode selection
   - phased generation (outline → block-by-block → closing → assembly)
   - lesson evaluation and normalization
-- Returns an `agent_trace` showing which tools ran
+- Returns an `agent_trace` showing which steps ran
 
-[`app/services/lesson_generator.py`](/c:/Users/walee/Desktop/Masters%20Degree/LLM/lesson-rag-agent/app/services/lesson_generator.py)
-- Compatibility wrapper around the agent
+[`app/services/bm25_index.py`](/c:/Users/walee/Desktop/Masters%20Degree/LLM/lesson-rag-agent/app/services/bm25_index.py)
+- Lazy-loaded BM25 index (`BM25Index`) built by scrolling all chunks from Qdrant on first access
+- Thread-safe singleton via `get_bm25_index()`; invalidated with `invalidate_bm25_index()` after reindex
 
 [`app/services/chatbot.py`](/c:/Users/walee/Desktop/Masters%20Degree/LLM/lesson-rag-agent/app/services/chatbot.py)
 - Provides a chatbot-style workflow for lesson scripts
@@ -332,7 +333,6 @@ Notes on the LLM template:
 Default hard filters:
 - `subject`
 - `grade_level`
-- `curriculum`
 
 Grade behavior:
 - `grade_level` metadata can be a single value like `"6"`
@@ -342,6 +342,10 @@ Grade behavior:
 Topic behavior:
 - `topic` is not used as a hard filter by default
 - it is added to the semantic query context instead
+
+Retrieval method behavior:
+- `dense` (default): cosine similarity search against Qdrant
+- `hybrid`: dense + BM25 merged with Reciprocal Rank Fusion (RRF, k=60) — better for exact terminology matches
 
 Retrieval mode behavior:
 - `filtered` keeps the hard metadata filters above
@@ -371,11 +375,11 @@ Script behavior:
 - the backend performs a cleanup pass on generated output to remove draft-style preambles, repair blank headers where possible, and normalize fallback source notes
 - script generation uses a phased approach: outline first, then each block individually, then closing sections — this ensures the model can produce enough content for long scripts
 
-### Agent Flow
-The agent currently runs these steps:
-1. `domain_checker` — rejects non-education requests using a two-step check: quick keyword pre-screen followed by LLM-based validation via Ollama (with `num_predict=8`) to confirm the request is genuinely about classroom education
+### Pipeline Flow
+`ScriptPipeline.run()` executes these steps in order:
+1. `domain_checker` — rejects non-education requests using a two-step check: subject keyword pre-screen (math, algebra, science, etc.) first, then education keyword gate, then LLM-based validation via Ollama (with `num_predict=8`) to confirm the request is genuinely about classroom education
 2. `param_resolver` — infers subject, grade level, and topic from the prompt if not explicitly provided, then picks the best retrieval mode (subject in corpus? → filtered → all; subject NOT in corpus? → skip retrieval → fallback generation)
-3. `retriever` — fetches relevant chunks from Qdrant
+3. `retriever` — fetches relevant chunks from Qdrant using dense or hybrid (dense+BM25+RRF) retrieval
 4. `outline_generator` — creates a structured lesson outline with block plan
 5. `block_generator` (repeated per block) — writes the full script for each time block individually
    - blocks longer than 5 minutes are automatically split into sub-blocks (max 5 minutes each) so each LLM call stays within the model's practical output range
@@ -384,23 +388,13 @@ The agent currently runs these steps:
 7. Assembly — combines header, blocks, and closing into the final script
 8. `evaluator` — checks structure, constraints, and density
 
-## Debug Files
-`data/processed/chunks_debug/`
-- contains one JSON file per source document
-- each file stores the chunks produced for that document
-- file paths mirror the source document path structure where possible
-
-Examples:
-- `data/processed/chunks_debug/c2integral.chunks.json`
-- `data/processed/chunks_debug/subfolder/my_book.chunks.json`
-
 ## Smoke Tests
 Current smoke scripts:
 - `tests/test_embeddings.py`
 - `tests/test_index_qdrant.py`
 - `tests/test_retrieval.py`
 - `tests/test_generate_lesson.py`
-- `tests/test_agent.py`
+- `tests/test_pipeline.py`
 - `tests/test_api.py`
 - `tests/test_chatbot_api.py`
 - `tests/test_frontend.py`
@@ -609,6 +603,31 @@ Also update:
   - Step 2 (LLM validation): sends a short classifier prompt to Ollama asking whether the request is genuinely about classroom education. Uses `num_predict=8` to keep latency low. Only proceeds if the LLM confirms "yes".
   - This prevents non-educational topics (trading bots, gambling strategies, etc.) from generating scripts just because they happen to include words like "lesson" or "teach".
 - Follow-up: monitor false-positive and false-negative rates on real prompts and tune the classifier prompt if needed.
+
+## 2026-03-27
+- Change: renamed `agent.py` → `pipeline.py`, `LessonPlanningAgent` → `ScriptPipeline`, `AgentConfig` → `PipelineConfig`. Renamed `test_agent.py` → `test_pipeline.py`.
+- Reason: the orchestrator is a deterministic pipeline (domain check → retrieval → generation → evaluate), not a true agent with tool selection or reasoning loops. The name was misleading.
+- Follow-up: none.
+
+- Change: implemented hybrid retrieval — dense vector search and BM25 lexical search merged with Reciprocal Rank Fusion (RRF, k=60). Added `app/services/bm25_index.py` (lazy BM25 singleton). Added `retrieval_method` parameter to `retrieve_chunks()`, `ScriptPipeline.run()`, all chatbot methods, API schemas, and Streamlit sidebar.
+- Reason: dense-only retrieval misses exact lexical matches (e.g. specific theorem names, formula notation). Hybrid + RRF consistently improves recall on domain-specific corpora.
+- Follow-up: add `rank-bm25` to requirements and install it (`pip install rank-bm25`).
+
+- Change: fixed domain check refusing valid education prompts like "write me a math script on algebra". Subject keywords (math, algebra, science, etc.) are now checked before the education keyword gate.
+- Reason: "math", "algebra", and "script" are not in EDUCATION_KEYWORDS, so the prompt was refused at the keyword gate before subject detection ran.
+- Follow-up: none.
+
+- Change: fixed hybrid retrieval always returning fallback mode. RRF scores max ~0.033 (far below the 0.35 cosine threshold). When `retrieval_method="hybrid"`, generation mode is now decided by whether any chunks were returned, not by score threshold.
+- Reason: the cosine similarity threshold is not meaningful for RRF scores.
+- Follow-up: none.
+
+- Change: improved Streamlit frontend. Removed `st.container(height=550)` — messages now render inline with `st.chat_input()` pinned to viewport. Replaced `st.code()` with a pre-wrap HTML div. Replaced `st.text()` with `st.markdown()` for retrieved chunk text. Added Top-k Chunks slider (3/5/7) and Retrieval Method dropdown (dense/hybrid) to sidebar.
+- Reason: fixed horizontal scroll on long script lines and auto-scroll failures on new messages.
+- Follow-up: none.
+
+- Change: deleted dead code and artifacts: `app/services/lesson_generator.py`, `app/static/index_old.html`, `/old` route in `main.py`, audio artifacts in `app/static/audio/`, debug chunk files in `data/processed/chunks_debug/`, `data/samples/metadata_llm_template.json`, and `build_lesson_prompt()` unused wrapper in `prompt_builder.py`.
+- Reason: none of these were referenced by any active code path.
+- Follow-up: none.
 
 - Change: rewrote the script revision flow in `chatbot.py` to use targeted block revision instead of full-script regeneration.
 - Reason: sending the entire script to the LLM for regeneration on every modification was extremely slow for large scripts.

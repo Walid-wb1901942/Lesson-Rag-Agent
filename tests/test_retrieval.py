@@ -12,7 +12,6 @@ def search(
     limit: int = 5,
     subject: str | None = None,
     grade_level: str | None = None,
-    curriculum: str | None = None,
     topic: str | None = None,
     use_topic_filter: bool = False,
 ):
@@ -21,7 +20,6 @@ def search(
         limit=limit,
         subject=subject,
         grade_level=grade_level,
-        curriculum=curriculum,
         topic=topic,
         use_topic_filter=use_topic_filter,
     )
@@ -39,7 +37,6 @@ def search(
         print("Page:", metadata.get("page_number"))
         print("Subject:", metadata.get("subject"))
         print("Grade:", format_metadata_value(metadata.get("grade_level")))
-        print("Curriculum:", metadata.get("curriculum"))
         print("Topic:", metadata.get("topic"))
         print("Source path:", metadata.get("source_path"))
         print("Text preview:")

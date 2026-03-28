@@ -1,8 +1,9 @@
-from app.services.lesson_generator import generate_lesson_from_query
+from app.services.pipeline import ScriptPipeline
 
 
 def main():
-    result = generate_lesson_from_query("Write a crypto trading bot with risk controls.")
+    agent = ScriptPipeline()
+    result = agent.run("Write a crypto trading bot with risk controls.")
 
     print("=" * 100)
     print("GENERATION MODE")

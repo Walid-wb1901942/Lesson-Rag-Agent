@@ -1,6 +1,6 @@
 import re
 
-from app.services.agent import LessonPlanningAgent
+from app.services.pipeline import ScriptPipeline
 from app.services.ollama_client import generate_text
 from app.services.prompt_builder import (
     build_block_identification_prompt,
@@ -136,29 +136,29 @@ def _reassemble_script(parts: list[dict]) -> str:
 class LessonScriptChatbot:
     """Conversational interface for generating and revising lesson scripts."""
 
-    def __init__(self, agent: LessonPlanningAgent | None = None):
-        """Initialize with an optional pre-configured agent."""
-        self.agent = agent or LessonPlanningAgent()
+    def __init__(self, pipeline: ScriptPipeline | None = None):
+        """Initialize with an optional pre-configured pipeline."""
+        self.pipeline = pipeline or ScriptPipeline()
 
     def generate_script(
         self,
         user_prompt: str,
         subject: str | None = None,
         grade_level: str | None = None,
-        curriculum: str | None = None,
         topic: str | None = None,
         retrieval_limit: int = 5,
         retrieval_mode: str = "auto",
+        retrieval_method: str = "dense",
     ) -> dict:
         """Generate a new lesson script via the agent pipeline."""
-        result = self.agent.run(
+        result = self.pipeline.run(
             user_prompt=user_prompt,
             subject=subject,
             grade_level=grade_level,
-            curriculum=curriculum,
             topic=topic,
             retrieval_limit=retrieval_limit,
             retrieval_mode=retrieval_mode,
+            retrieval_method=retrieval_method,
         )
 
         if result["generation_mode"] in {"refuse", "input_error"}:
@@ -186,10 +186,10 @@ class LessonScriptChatbot:
         original_request: str,
         subject: str | None = None,
         grade_level: str | None = None,
-        curriculum: str | None = None,
         topic: str | None = None,
         retrieval_limit: int = 5,
         retrieval_mode: str = "auto",
+        retrieval_method: str = "dense",
     ) -> dict:
         """Revise an existing script by regenerating only the affected blocks."""
         trace: list[dict] = [
@@ -198,7 +198,7 @@ class LessonScriptChatbot:
 
         # Resolve retrieval params
         resolved_subject, resolved_grade, resolved_topic, resolved_mode = (
-            self.agent._resolve_retrieval_params(
+            self.pipeline._resolve_retrieval_params(
                 user_prompt=original_request,
                 subject=subject,
                 grade_level=grade_level,
@@ -216,9 +216,9 @@ class LessonScriptChatbot:
                 limit=retrieval_limit,
                 subject=resolved_subject,
                 grade_level=resolved_grade,
-                curriculum=curriculum,
                 topic=resolved_topic,
                 retrieval_mode=resolved_mode,
+                retrieval_method=retrieval_method,
             )
         trace.append({"tool": "retriever", "chunks": retrieved_chunks})
 
@@ -229,7 +229,7 @@ class LessonScriptChatbot:
         block_parts = [p for p in parsed if p["type"] == "block"]
 
         # Extract duration from original request for gap detection
-        constraints = self.agent._extract_constraints(original_request)
+        constraints = self.pipeline._extract_constraints(original_request)
         total_minutes = constraints["duration_minutes"] or 40
 
         if not block_parts:
@@ -361,10 +361,10 @@ class LessonScriptChatbot:
 
             # Reassemble, deduplicate, and normalize
             revised_script = _reassemble_script(parsed)
-            revised_script = self.agent._remove_script_repetitions(
+            revised_script = self.pipeline._remove_script_repetitions(
                 revised_script, trace,
             )
-            revised_script = self.agent.normalize_lesson_text(
+            revised_script = self.pipeline.normalize_lesson_text(
                 lesson_text=revised_script,
                 user_prompt=original_request,
                 generation_mode=generation_mode,
@@ -413,8 +413,8 @@ class LessonScriptChatbot:
         """Fallback: revise the whole script in one LLM call when blocks can't be parsed."""
         from app.services.prompt_builder import build_script_revision_prompt
 
-        constraints = self.agent._extract_constraints(original_request)
-        resolved_subject = subject or self.agent._infer_subject(original_request)
+        constraints = self.pipeline._extract_constraints(original_request)
+        resolved_subject = subject or self.pipeline._infer_subject(original_request)
 
         prompt = build_script_revision_prompt(
             original_request=original_request,
@@ -426,7 +426,7 @@ class LessonScriptChatbot:
             duration_minutes=constraints["duration_minutes"],
         )
         revised = generate_text(prompt)
-        return self.agent.normalize_lesson_text(
+        return self.pipeline.normalize_lesson_text(
             lesson_text=revised,
             user_prompt=original_request,
             generation_mode=generation_mode,
@@ -442,10 +442,10 @@ class LessonScriptChatbot:
         original_request: str | None = None,
         subject: str | None = None,
         grade_level: str | None = None,
-        curriculum: str | None = None,
         topic: str | None = None,
         retrieval_limit: int = 5,
         retrieval_mode: str = "auto",
+        retrieval_method: str = "dense",
     ) -> dict:
         """Route a chat message to generation or revision based on context."""
         if current_script:
@@ -455,18 +455,18 @@ class LessonScriptChatbot:
                 original_request=original_request or message,
                 subject=subject,
                 grade_level=grade_level,
-                curriculum=curriculum,
                 topic=topic,
                 retrieval_limit=retrieval_limit,
                 retrieval_mode=retrieval_mode,
+                retrieval_method=retrieval_method,
             )
 
         return self.generate_script(
             user_prompt=message,
             subject=subject,
             grade_level=grade_level,
-            curriculum=curriculum,
             topic=topic,
             retrieval_limit=retrieval_limit,
             retrieval_mode=retrieval_mode,
+            retrieval_method=retrieval_method,
         )

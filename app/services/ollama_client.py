@@ -35,12 +35,13 @@ def generate_text(
             "model": settings.OLLAMA_GENERATION_MODEL,
             "prompt": prompt,
             "stream": False,
+            "think": False,
             "options": {
                 "num_predict": num_predict,
                 "num_ctx": num_ctx,
             },
         },
-        timeout=600,
+        timeout=900,
     )
     _raise_with_response_details(response)
     data = response.json()

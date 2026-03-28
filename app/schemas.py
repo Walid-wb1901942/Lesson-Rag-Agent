@@ -13,7 +13,6 @@ class DocumentMetadata(BaseModel):
     title: str | None = None
     subject: str | None = None
     grade_level: GradeLevel = None
-    curriculum: str | None = None
     topic: str | None = None
     source_type: str | None = None
     language: str = "en"
@@ -50,10 +49,10 @@ class LessonRequest(BaseModel):
     user_prompt: str
     subject: str | None = None
     grade_level: str | None = None
-    curriculum: str | None = None
     topic: str | None = None
     retrieval_limit: int = 5
     retrieval_mode: str = "auto"
+    retrieval_method: str = "dense"
 
 
 class Citation(BaseModel):
@@ -89,10 +88,10 @@ class LessonChatRequest(BaseModel):
     original_request: str | None = None
     subject: str | None = None
     grade_level: str | None = None
-    curriculum: str | None = None
     topic: str | None = None
     retrieval_limit: int = 5
     retrieval_mode: str = "auto"
+    retrieval_method: str = "dense"
 
 
 class LessonChatResponse(BaseModel):

@@ -12,7 +12,6 @@ from app.config import settings
 FILTERABLE_PAYLOAD_FIELDS = (
     "subject",
     "grade_level",
-    "curriculum",
     "topic",
     "language",
     "source_type",
@@ -126,7 +125,6 @@ def field_value_exists(field_name: str, value: str) -> bool:
 def filter_has_matches(
     subject: str | None = None,
     grade_level: str | None = None,
-    curriculum: str | None = None,
 ) -> bool:
     """Check if any indexed documents match the given metadata filter combination."""
     client = get_qdrant_client()
@@ -138,8 +136,6 @@ def filter_has_matches(
         conditions.append(FieldCondition(key="subject", match=MatchValue(value=subject)))
     if grade_level:
         conditions.append(FieldCondition(key="grade_level", match=MatchValue(value=grade_level)))
-    if curriculum:
-        conditions.append(FieldCondition(key="curriculum", match=MatchValue(value=curriculum)))
 
     points, _ = client.scroll(
         collection_name=settings.QDRANT_COLLECTION,

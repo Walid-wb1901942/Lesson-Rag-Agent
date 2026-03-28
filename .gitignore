@@ -39,3 +39,6 @@ Thumbs.db
 # Secrets
 *api_key*
 *.key
+
+# Streamlit local secrets (never commit)
+.streamlit/secrets.toml

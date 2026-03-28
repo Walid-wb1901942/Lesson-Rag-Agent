@@ -211,7 +211,8 @@ def build_references_section(chunks: list[dict]) -> str:
         if detail_parts:
             parts.append(f"({', '.join(detail_parts)})")
 
-        lines.append(f"- {' \u2014 '.join(parts)}")
+        sep = " \u2014 "
+        lines.append(f"- {sep.join(parts)}")
 
     return "\n".join(lines)
 
@@ -504,10 +505,6 @@ Rules:
 - Write ONLY this one revised block, nothing else.
 {SPOKEN_MATH_RULE}
 """
-
-
-def build_lesson_prompt(user_prompt: str, retrieved_chunks: list[dict]) -> str:
-    return build_grounded_lesson_prompt(user_prompt, retrieved_chunks)
 
 
 # ---------------------------------------------------------------------------

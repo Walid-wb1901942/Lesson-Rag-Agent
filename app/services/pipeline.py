@@ -1,4 +1,5 @@
 import re
+from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from math import ceil
 from dataclasses import dataclass
@@ -56,36 +57,38 @@ SUBJECT_KEYWORDS = {
 
 
 @dataclass
-class AgentConfig:
-    """Configuration for the lesson planning agent."""
+class PipelineConfig:
+    """Configuration for the lesson generation pipeline."""
 
     retrieval_limit: int = 5
     max_revision_passes: int = 4
     min_retrieval_score: float = MIN_RETRIEVAL_SCORE
 
 
-class LessonPlanningAgent:
-    """Main orchestration agent for RAG-based lesson script generation."""
+class ScriptPipeline:
+    """Orchestration pipeline for RAG-based lesson script generation."""
 
-    def __init__(self, config: AgentConfig | None = None):
-        """Initialize the agent with optional configuration overrides."""
-        self.config = config or AgentConfig()
+    def __init__(self, config: PipelineConfig | None = None):
+        """Initialize the pipeline with optional configuration overrides."""
+        self.config = config or PipelineConfig()
 
     def check_education_domain(self, user_prompt: str) -> dict:
         """Verify the request is education-related using keywords and LLM validation."""
         lower = user_prompt.lower()
 
-        # Fast path: if no education keywords at all, refuse immediately
-        has_keyword = any(keyword in lower for keyword in EDUCATION_KEYWORDS)
-        if not has_keyword:
-            return {"tool": "domain_checker", "is_education_related": False}
-
-        # Fast path: if prompt contains a known academic subject, skip LLM call
+        # Fast path: if prompt contains a known academic subject, accept immediately.
+        # This must come before the education-keyword gate so that prompts like
+        # "write a math script on algebra" are not incorrectly refused.
         all_subject_terms = [
             term for terms in SUBJECT_KEYWORDS.values() for term in terms
         ]
         if any(term in lower for term in all_subject_terms):
             return {"tool": "domain_checker", "is_education_related": True}
+
+        # Fast path: if no education keywords at all, refuse immediately
+        has_keyword = any(keyword in lower for keyword in EDUCATION_KEYWORDS)
+        if not has_keyword:
+            return {"tool": "domain_checker", "is_education_related": False}
 
         # Ambiguous case: has education keywords but no recognized subject.
         # Use a quick LLM call to verify (e.g. "trading bot lesson").
@@ -113,10 +116,10 @@ class LessonPlanningAgent:
         user_prompt: str,
         subject: str | None = None,
         grade_level: str | None = None,
-        curriculum: str | None = None,
         topic: str | None = None,
         retrieval_limit: int | None = None,
         retrieval_mode: str = "filtered",
+        retrieval_method: str = "dense",
     ) -> dict:
         """Retrieve relevant document chunks from Qdrant for the given query."""
         limit = retrieval_limit or self.config.retrieval_limit
@@ -125,21 +128,30 @@ class LessonPlanningAgent:
             limit=limit,
             subject=subject,
             grade_level=grade_level,
-            curriculum=curriculum,
             topic=topic,
             retrieval_mode=retrieval_mode,
+            retrieval_method=retrieval_method,
         )
         return {
             "tool": "retriever",
             "retrieval_mode": retrieval_mode,
+            "retrieval_method": retrieval_method,
             "chunks": chunks,
             "top_score": chunks[0]["score"] if chunks else None,
         }
 
-    def choose_generation_mode(self, retrieved_chunks: list[dict]) -> str:
-        """Select grounded or fallback mode based on retrieval quality."""
+    def choose_generation_mode(
+        self, retrieved_chunks: list[dict], retrieval_method: str = "dense"
+    ) -> str:
+        """Select grounded or fallback mode based on retrieval quality.
+
+        For hybrid retrieval, RRF scores are always < 0.05 (1/(60+rank)) so the
+        cosine-similarity threshold does not apply — any returned chunks are grounded.
+        """
         if not retrieved_chunks:
             return "fallback"
+        if retrieval_method == "hybrid":
+            return "grounded"
         if retrieved_chunks[0]["score"] >= self.config.min_retrieval_score:
             return "grounded"
         return "fallback"
@@ -210,71 +222,71 @@ class LessonPlanningAgent:
         # Parse blocks from the outline and enforce the requested duration
         blocks_plan = self._parse_and_validate_block_plan(outline, total)
 
-        # Step 2: Generate each block individually
-        # Large blocks (>5 minutes) are split into sub-blocks to keep each
-        # LLM call within the model's practical output range.
-        max_minutes_per_call = 5
-        generated_blocks: list[str] = []
+        # Step 2: Build a flat ordered list of all sub-blocks first, then generate
+        # them all in parallel. Each block receives the full outline as context
+        # (which describes every block's topic), so concurrent generation works
+        # without needing the actual text of preceding blocks.
+        # The deduplication pass in Step 3 handles any content overlap.
+        max_minutes_per_call = 30
+        all_sub_blocks: list[tuple[int, int, str]] = []  # (sub_start, sub_end, sub_desc)
         for start, end, description in blocks_plan:
-            block_label = f"[Minute {start}-{end}]"
             block_minutes = end - start
-
             if block_minutes <= max_minutes_per_call:
-                sub_blocks = [(start, end, description)]
+                all_sub_blocks.append((start, end, description))
             else:
-                sub_blocks = []
                 cursor = start
+                part_num = 0
                 while cursor < end:
                     sub_end = min(cursor + max_minutes_per_call, end)
                     if sub_end == end or (end - sub_end) < 3:
                         sub_end = end
-                    sub_label_hint = (
-                        f"{description} (part {len(sub_blocks)+1})"
+                    label_hint = (
+                        f"{description} (part {part_num + 1})"
                         if sub_end != end else f"{description} (final part)"
                     )
-                    sub_blocks.append((cursor, sub_end, sub_label_hint))
+                    all_sub_blocks.append((cursor, sub_end, label_hint))
+                    part_num += 1
                     cursor = sub_end
 
-            block_parts: list[str] = []
-            for sub_start, sub_end, sub_desc in sub_blocks:
-                sub_label = f"[Minute {sub_start}-{sub_end}]"
-                sub_minutes = sub_end - sub_start
-                # Pass up to the last 3 blocks so the LLM can see what was
-                # already covered and avoid repeating earlier material.
-                recent = block_parts[-3:] or generated_blocks[-3:]
-                previous_text = "\n\n".join(recent) if recent else ""
-                # Cap context to ~2000 chars to keep prompt size manageable
-                if len(previous_text) > 2000:
-                    previous_text = previous_text[-2000:]
+        def _generate_sub_block(args: tuple) -> tuple:
+            idx, sub_start, sub_end, sub_desc = args
+            sub_label = f"[Minute {sub_start}-{sub_end}]"
+            sub_minutes = sub_end - sub_start
+            sub_prompt = build_block_prompt(
+                block_label=sub_label,
+                block_description=sub_desc,
+                block_minutes=sub_minutes,
+                outline=outline,
+                previous_blocks_text="",
+                retrieved_chunks=retrieved_chunks,
+                generation_mode=generation_mode,
+            )
+            # Scale token budget to block duration: ~127 tokens/minute at 95 wpm,
+            # with a 40% overhead buffer. Floor at 1024 for very short blocks.
+            block_num_predict = max(1024, int(sub_minutes * WORDS_PER_MINUTE / 0.75 * 1.4))
+            text = generate_text(sub_prompt, num_predict=block_num_predict)
+            if sub_label not in text:
+                text = f"{sub_label}\n{text}"
+            text = self._trim_to_current_block(text, sub_label)
+            text = self._remove_repetitions(text)
+            text = self._trim_truncated_block(text)
+            return idx, sub_label, sub_minutes, text.strip()
 
-                sub_prompt = build_block_prompt(
-                    block_label=sub_label,
-                    block_description=sub_desc,
-                    block_minutes=sub_minutes,
-                    outline=outline,
-                    previous_blocks_text=previous_text,
-                    retrieved_chunks=retrieved_chunks,
-                    generation_mode=generation_mode,
-                )
-                sub_text = generate_text(sub_prompt)
+        indexed = [(i, s, e, d) for i, (s, e, d) in enumerate(all_sub_blocks)]
+        max_workers = min(len(indexed), 4)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            raw_results = list(executor.map(_generate_sub_block, indexed))
 
-                if sub_label not in sub_text:
-                    sub_text = f"{sub_label}\n{sub_text}"
-
-                # Trim if the LLM wrote past this block into the next one
-                sub_text = self._trim_to_current_block(sub_text, sub_label)
-                sub_text = self._remove_repetitions(sub_text)
-                sub_text = self._trim_truncated_block(sub_text)
-                block_parts.append(sub_text.strip())
-
-                trace.append({
-                    "tool": "block_generator",
-                    "block": sub_label,
-                    "words": len(sub_text.split()),
-                    "target_words": sub_minutes * WORDS_PER_MINUTE,
-                })
-
-            generated_blocks.extend(block_parts)
+        raw_results.sort(key=lambda r: r[0])
+        generated_blocks: list[str] = []
+        for _, sub_label, sub_minutes, sub_text in raw_results:
+            generated_blocks.append(sub_text)
+            trace.append({
+                "tool": "block_generator",
+                "block": sub_label,
+                "words": len(sub_text.split()),
+                "target_words": sub_minutes * WORDS_PER_MINUTE,
+            })
 
         # Step 3: Remove cross-block duplicates (model sometimes repeats blocks
         # with minor wording variations). Uses fuzzy similarity to catch near-dupes.
@@ -515,8 +527,10 @@ Current draft:
                 # Subject doesn't exist in the corpus at all — skip retrieval
                 # to avoid pulling irrelevant content from unrelated subjects.
                 retrieval_mode = "skip"
-            elif resolved_subject and resolved_grade and resolved_topic:
-                # Check if these values actually exist in the corpus
+            elif resolved_subject:
+                # Subject is known — always filter by it so unrelated subjects
+                # (e.g. chemistry when the request is mathematics) are excluded.
+                # Grade is used as an additional filter only when present.
                 if filter_has_matches(subject=resolved_subject, grade_level=resolved_grade):
                     retrieval_mode = "filtered"
                 else:
@@ -531,10 +545,10 @@ Current draft:
         user_prompt: str,
         subject: str | None = None,
         grade_level: str | None = None,
-        curriculum: str | None = None,
         topic: str | None = None,
         retrieval_limit: int | None = None,
         retrieval_mode: str = "auto",
+        retrieval_method: str = "dense",
     ) -> dict:
         """Execute the full agent pipeline: domain check, retrieve, generate, evaluate."""
         trace: list[dict] = []
@@ -586,7 +600,6 @@ Current draft:
                 subject=resolved_subject,
                 grade_level=resolved_grade,
                 topic=resolved_topic,
-                curriculum=curriculum,
             )
             trace.append(validation_result)
             if not validation_result["passed"]:
@@ -603,15 +616,15 @@ Current draft:
                 user_prompt=user_prompt,
                 subject=resolved_subject,
                 grade_level=resolved_grade,
-                curriculum=curriculum,
                 topic=resolved_topic,
                 retrieval_limit=retrieval_limit,
                 retrieval_mode=resolved_mode,
+                retrieval_method=retrieval_method,
             )
             trace.append(retrieval_result)
             retrieved_chunks = retrieval_result["chunks"]
 
-        generation_mode = self.choose_generation_mode(retrieved_chunks)
+        generation_mode = self.choose_generation_mode(retrieved_chunks, retrieval_method)
         source_notice = (
             "Lesson generated using retrieved source material from the vector store."
             if generation_mode == "grounded"
@@ -681,7 +694,6 @@ Current draft:
         subject: str | None = None,
         grade_level: str | None = None,
         topic: str | None = None,
-        curriculum: str | None = None,
     ) -> dict:
         """Validate that filtered retrieval inputs exist in the Qdrant corpus."""
         if retrieval_mode != "filtered":
@@ -738,21 +750,9 @@ Current draft:
                 ),
             }
 
-        if curriculum and not field_value_exists("curriculum", curriculum):
-            available_curricula = ", ".join(list_payload_values("curriculum"))
-            return {
-                "tool": "input_validator",
-                "passed": False,
-                "message": (
-                    f"The selected curriculum '{curriculum}' does not exist in the indexed document set. "
-                    f"Available curriculum values include: {available_curricula or 'none found'}."
-                ),
-            }
-
         if not filter_has_matches(
             subject=subject,
             grade_level=grade_level,
-            curriculum=curriculum,
         ):
             return {
                 "tool": "input_validator",

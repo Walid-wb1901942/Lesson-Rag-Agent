@@ -168,14 +168,20 @@ def chunk_document(doc: RawDocument) -> list[DocumentChunk]:
     current_parts: list[str] = []
     current_tokens = 0
     chunk_index = 0
+    last_known_page: int | None = None  # fallback for chunks with no inline marker
 
     for section in sections:
+        # Track the highest page marker seen so far for use as a fallback
+        section_page = extract_page_number(section)
+        if section_page is not None:
+            last_known_page = section_page
+
         section_tokens = count_tokens(section)
 
         if current_parts and current_tokens + section_tokens > max_chunk_tokens:
             chunk_text = "\n\n".join(current_parts).strip()
-            page_range = extract_page_range(chunk_text)
-            first_page = extract_page_number(chunk_text)
+            first_page = extract_page_number(chunk_text) or last_known_page
+            page_range = extract_page_range(chunk_text) or (str(first_page) if first_page else None)
 
             chunks.append(
                 DocumentChunk(
@@ -214,8 +220,8 @@ def chunk_document(doc: RawDocument) -> list[DocumentChunk]:
 
     if current_parts:
         chunk_text = "\n\n".join(current_parts).strip()
-        page_range = extract_page_range(chunk_text)
-        first_page = extract_page_number(chunk_text)
+        first_page = extract_page_number(chunk_text) or last_known_page
+        page_range = extract_page_range(chunk_text) or (str(first_page) if first_page else None)
 
         chunks.append(
             DocumentChunk(
