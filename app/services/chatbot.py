@@ -435,6 +435,27 @@ class LessonScriptChatbot:
             retrieved_chunks=retrieved_chunks,
         )
 
+    _REFUSE_RESPONSE = {
+        "chat_mode": "refuse",
+        "assistant_message": (
+            "This tool only generates and revises classroom lesson scripts. "
+            "I can't help with that request."
+        ),
+        "follow_up_prompt": None,
+        "user_prompt": "",
+        "generation_mode": "refuse",
+        "source_notice": "Request refused — not a lesson script request.",
+        "retrieved_chunks": [],
+        "prompt_used": None,
+        "lesson_text": (
+            "This tool only generates and revises classroom lesson scripts. "
+            "I can't help with that request."
+        ),
+        "evaluation": None,
+        "agent_trace": [],
+        "citations": [],
+    }
+
     def chat(
         self,
         message: str,
@@ -448,11 +469,10 @@ class LessonScriptChatbot:
         retrieval_method: str = "dense",
     ) -> dict:
         """Route a chat message to generation or revision based on context."""
-        if current_script:
-            return self.revise_script(
-                modification_request=message,
-                current_script=current_script,
-                original_request=original_request or message,
+        # For new scripts, the pipeline's domain checker handles validation.
+        if not current_script:
+            return self.generate_script(
+                user_prompt=message,
                 subject=subject,
                 grade_level=grade_level,
                 topic=topic,
@@ -461,8 +481,25 @@ class LessonScriptChatbot:
                 retrieval_method=retrieval_method,
             )
 
-        return self.generate_script(
-            user_prompt=message,
+        # For revisions, check that the modification request is script-related.
+        domain_result = self.pipeline.check_education_domain(message)
+        # Also allow short/vague revision commands ("make it longer", "add more examples")
+        # by checking for common revision keywords even if domain check fails.
+        _REVISION_KEYWORDS = (
+            "make", "add", "remove", "change", "update", "shorten", "lengthen",
+            "simplify", "expand", "revise", "rewrite", "fix", "adjust", "include",
+            "replace", "more", "less", "longer", "shorter", "easier", "harder",
+        )
+        lower = message.lower()
+        is_revision_command = any(kw in lower for kw in _REVISION_KEYWORDS)
+
+        if not domain_result["is_education_related"] and not is_revision_command:
+            return {**self._REFUSE_RESPONSE, "user_prompt": message}
+
+        return self.revise_script(
+            modification_request=message,
+            current_script=current_script,
+            original_request=original_request or message,
             subject=subject,
             grade_level=grade_level,
             topic=topic,

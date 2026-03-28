@@ -76,17 +76,19 @@ class ScriptPipeline:
         """Verify the request is education-related using keywords and LLM validation."""
         lower = user_prompt.lower()
 
-        # Fast path: if prompt contains a known academic subject, accept immediately.
-        # This must come before the education-keyword gate so that prompts like
-        # "write a math script on algebra" are not incorrectly refused.
+        # Fast path: if prompt contains a known academic subject AND at least one
+        # education keyword, accept immediately (e.g. "write a math script on algebra").
+        # Requires BOTH to prevent subject-word-only bypasses like "trading bot using math".
         all_subject_terms = [
             term for terms in SUBJECT_KEYWORDS.values() for term in terms
         ]
-        if any(term in lower for term in all_subject_terms):
+        has_subject = any(term in lower for term in all_subject_terms)
+        has_keyword = any(keyword in lower for keyword in EDUCATION_KEYWORDS)
+
+        if has_subject and has_keyword:
             return {"tool": "domain_checker", "is_education_related": True}
 
         # Fast path: if no education keywords at all, refuse immediately
-        has_keyword = any(keyword in lower for keyword in EDUCATION_KEYWORDS)
         if not has_keyword:
             return {"tool": "domain_checker", "is_education_related": False}
 
