@@ -70,13 +70,12 @@ Each chunk stores metadata including: `title`, `subject`, `grade_level`, `topic`
 
 The retrieval module supports three modes:
 
-**Dense retrieval.** The user query is embedded using the configured Ollama embedding model with an instruction prefix designed for asymmetric retrieval:
+**Dense retrieval.** The user query is embedded using `nomic-embed-text` with its native task-specific prefix for asymmetric retrieval:
 
-```
-Instruct: Given a teacher's request for a classroom lesson,
-retrieve the most relevant educational textbook passage
-Query: <user query>
-```
+- **Queries:** `"search_query: " + query_text`
+- **Documents (at index time):** `"search_document: " + chunk_text`
+
+These prefixes place queries and documents in the correct sub-spaces of the `nomic-embed-text` embedding model. Using a mismatched prefix (e.g. the `"Instruct: ...\nQuery: "` format designed for `e5-mistral-7b`) places query and document vectors in different spaces, collapsing cosine similarity scores to near-zero even for highly relevant matches.
 
 The query vector is matched against chunk vectors in Qdrant using cosine similarity. Optional metadata pre-filters (`subject`, `grade_level`) narrow the candidate set.
 
@@ -86,11 +85,18 @@ $$\text{RRF}(d) = \sum_{r \in \{dense, bm25\}} \frac{1}{60 + \text{rank}_r(d)}$$
 
 The top-k documents by RRF score are returned. In hybrid mode, the generation mode decision (grounded vs. fallback) is based on whether any chunks were returned, bypassing the cosine-similarity threshold which is not meaningful for RRF scores.
 
+A key design constraint is that BM25 searches the full corpus without metadata filters. Without correction, BM25 candidates from unrelated subjects enter the RRF pool via lexical coincidence (e.g. a query containing the word `"script"` matches computer science chunks about scripting languages). This is addressed by fetching the payload of each BM25-only candidate after retrieval and filtering out those whose `subject` field does not match the resolved subject filter before RRF scoring.
+
 **Auto-mode resolution.** When retrieval mode is set to `auto` (the default), the system infers subject, grade level, and topic from the user prompt using keyword matching. It then checks whether the inferred subject exists in the corpus: if so, filtered retrieval is attempted; if not, retrieval is skipped and fallback generation is used.
 
 ### D. Generation
 
-**Domain check.** Before retrieval, the user prompt is validated as education-related. A fast keyword pre-screen checks for education vocabulary. Ambiguous prompts (those containing education keywords but no recognized subject term) are passed to a lightweight LLM classifier (`num_predict=8`). Prompts containing a recognized academic subject term (mathematics, algebra, science, etc.) pass immediately without an LLM call.
+**Domain check.** Before retrieval, the user prompt is validated as education-related using a two-step guard:
+
+1. *Fast path:* If the prompt contains a recognized academic subject term (mathematics, algebra, science, etc.) **and** at least one education keyword (lesson, teach, classroom, etc.), it is accepted immediately. Requiring both conditions prevents subject-word-only bypass (e.g. `"write a trading bot using math equations"`).
+2. *LLM validation:* Ambiguous prompts — those with education keywords but no recognized subject — are passed to a lightweight LLM classifier (`num_predict=8`) that returns `"yes"` or `"no"`.
+
+A separate revision guard in `chatbot.chat()` checks modification requests against a domain classifier and an allowlist of revision verbs (make, add, change, expand, etc.), refusing off-topic requests that attempt to replace script content with unrelated material.
 
 **Phased generation.** Generating a 30-minute script (~2,850 words at 95 words per minute) in a single LLM call is unreliable for models with practical output limits of 2,000–4,000 tokens. The system uses a three-phase approach:
 
@@ -132,10 +138,12 @@ The system is implemented in Python 3.11. Key components and their responsibilit
 | `app/services/prompt_builder.py` | Prompt templates for all generation and revision tasks |
 | `app/services/pipeline.py` | Orchestration: domain check, retrieval, phased generation, evaluation |
 | `app/services/chatbot.py` | Chat interface, block parsing, targeted revision |
-| `app/main.py` | FastAPI endpoints, TTS background jobs |
-| `streamlit_app.py` | Streamlit frontend with session state management |
+| `app/main.py` | FastAPI endpoints; async job store for `/chat/script` (submit → poll pattern); TTS background jobs |
+| `streamlit_app.py` | Streamlit frontend with session state management; polls `/chat/status/{job_id}` with progress bar |
 
 **Infrastructure.** Embeddings and generation run through Ollama, a local model server that supports quantized open-weight models. Vector storage uses Qdrant Cloud with keyword payload indexes on `subject` and `grade_level` for efficient metadata filtering. The Streamlit frontend communicates with the FastAPI backend over HTTP.
+
+**Async job pattern.** Script generation can take 3–8 minutes, exceeding the hard connection timeout imposed by reverse proxies and cloud tunnels (typically 100 s). `POST /chat/script` therefore initiates generation as a FastAPI `BackgroundTask` and returns a `job_id` immediately. `GET /chat/status/{job_id}` returns the job state (`processing`, `done`, or `error`) and, when complete, the full result. The Streamlit frontend polls this endpoint every 3 seconds with a progress bar, keeping each individual HTTP request well within proxy timeout limits. This mirrors the already-existing TTS job pattern in the same codebase.
 
 **Text-to-Speech.** Generated scripts can be converted to audio using Edge TTS (fast, uses Microsoft's cloud voices) or Bark (local, more expressive but GPU-intensive). TTS jobs run as FastAPI background tasks, polled by the frontend.
 
@@ -183,6 +191,10 @@ On a workstation running qwen3.5:27b (27B parameter model with Q4 quantization):
 **Retrieval mode selection.** The auto-mode resolver correctly bypasses retrieval for subjects not present in the corpus (e.g. history, art), avoiding the failure mode of grounding scripts on unrelated educational material retrieved by similarity alone.
 
 **Thinking model compatibility.** The qwen3.5 model family uses a reasoning token step (`<think>...</think>`) before generating output. These tokens consume the `num_predict` budget without contributing to script content. This was addressed by passing `"think": false` at the top level of the Ollama API request body, disabling the reasoning step and restoring the full token budget for script generation.
+
+**Embedding prefix alignment.** A practical deployment issue is the need to use matching task-specific prefixes for both index-time and query-time embeddings when using instruction-tuned embedding models. Using the wrong prefix format (e.g. the `e5-mistral-7b` instruction format with `nomic-embed-text`) places query and document vectors in different sub-spaces, reducing effective cosine similarity scores from ~0.7 to near-zero across the board. This issue is silent — retrieval appears to function but returns near-random results ranked by spurious similarity. The fix requires both correcting the query prefix and fully re-indexing the document corpus to regenerate stored vectors.
+
+**BM25 subject leakage.** BM25 keyword matching is subject-agnostic and will surface chunks from any domain if the query contains matching terms. Queries phrased as "write me a *script* on..." match computer science passages about scripting languages, for example. Post-retrieval payload filtering on BM25-only candidates is necessary to enforce the same subject constraints as the dense retrieval path.
 
 **Limitations.** The system currently supports only PDF input. Web pages and plain text documents are not ingested. The BM25 index is rebuilt from Qdrant on each server restart, adding latency on the first hybrid retrieval. For very large corpora, this rebuild time would need to be addressed with an offline index persistence mechanism.
 

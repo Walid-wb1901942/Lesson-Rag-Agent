@@ -209,19 +209,21 @@ Runs at `http://localhost:8501` — requires the FastAPI backend to be running.
 
 ## API Endpoints
 
-| Method | Endpoint             | Description                                   |
-|--------|----------------------|-----------------------------------------------|
-| POST   | `/agent/run`         | Generate a lesson script                      |
-| POST   | `/lessons/generate`  | Alias for `/agent/run`                        |
-| POST   | `/chat/script`       | Chat-style generation and revision            |
-| POST   | `/tts/generate`      | Start text-to-speech audio generation         |
-| GET    | `/tts/status/{id}`   | Check TTS job status                          |
-| GET    | `/tts/download/{id}` | Download generated audio file                 |
-| GET    | `/health`            | Health check                                  |
+| Method | Endpoint              | Description                                               |
+|--------|-----------------------|-----------------------------------------------------------|
+| POST   | `/agent/run`          | Generate a lesson script (synchronous)                    |
+| POST   | `/lessons/generate`   | Alias for `/agent/run`                                    |
+| POST   | `/chat/script`        | Submit generation job — returns `{"job_id": "..."}` immediately |
+| GET    | `/chat/status/{id}`   | Poll job status (`processing` / `done` / `error`) + result |
+| POST   | `/tts/generate`       | Start text-to-speech audio generation                     |
+| GET    | `/tts/status/{id}`    | Check TTS job status                                      |
+| GET    | `/tts/download/{id}`  | Download generated audio file                             |
+| GET    | `/health`             | Health check                                              |
 
 ### Example Request
 
 ```bash
+# Step 1 — submit the job
 curl -X POST http://localhost:8000/chat/script \
   -H "Content-Type: application/json" \
   -d '{
@@ -229,6 +231,11 @@ curl -X POST http://localhost:8000/chat/script \
     "retrieval_limit": 5,
     "retrieval_method": "hybrid"
   }'
+# Returns: {"job_id": "a1b2c3d4", "status": "processing"}
+
+# Step 2 — poll until done
+curl http://localhost:8000/chat/status/a1b2c3d4
+# Returns: {"job_id": "...", "status": "done", "result": {...}}
 ```
 
 ### Request Parameters (`/chat/script`)
@@ -302,6 +309,10 @@ lesson-rag-agent/
 5. **Auto retrieval mode** — Instead of requiring users to specify subject/grade/topic, the system infers these from the natural language prompt and picks the best retrieval strategy automatically (filtered → all → skip).
 
 6. **Block-level revision** — When a user requests changes, only the affected time blocks are regenerated rather than the entire script, yielding 4–8× faster revisions.
+
+7. **Async job pattern** — `POST /chat/script` returns a `job_id` immediately; the frontend polls `GET /chat/status/{job_id}`. This prevents proxy/tunnel timeout errors (e.g. Cloudflare 524) on generation requests that take several minutes.
+
+8. **Correct nomic-embed-text prefixes** — Documents are indexed with `"search_document: "` and queries use `"search_query: "` — the task-specific prefixes for `nomic-embed-text`. Using the wrong prefix spaces documents and queries in different vector spaces, collapsing cosine similarity scores to near-zero.
 
 ## Running Smoke Tests
 
