@@ -4,9 +4,17 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, FastAPI, Response
 from fastapi.responses import FileResponse
 
-from app.schemas import LessonChatRequest, LessonRequest, LessonResponse, TTSRequest
-from app.services.pipeline import ScriptPipeline
+from app.schemas import (
+    LessonChatRequest,
+    LessonRequest,
+    LessonResponse,
+    QuizRequest,
+    QuizResponse,
+    TTSRequest,
+)
 from app.services.chatbot import LessonScriptChatbot
+from app.services.pipeline import ScriptPipeline
+from app.services.quiz_pipeline import QuizPipeline
 
 app = FastAPI(
     title="Lesson RAG Agent API",
@@ -16,6 +24,7 @@ app = FastAPI(
 
 pipeline = ScriptPipeline()
 chatbot = LessonScriptChatbot(pipeline=pipeline)
+quiz_pipeline = QuizPipeline()
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -136,6 +145,66 @@ def generate_tts(request: TTSRequest, background_tasks: BackgroundTasks) -> dict
 def tts_status(job_id: str) -> dict:
     """Check the status of a TTS generation job."""
     job = _tts_jobs.get(job_id)
+    if not job:
+        return {"status": "not_found"}
+    return {"job_id": job_id, **job}
+
+
+# ---- Quiz Generation ----
+_quiz_jobs: dict[str, dict] = {}
+
+
+@app.post("/quiz/generate", response_model=QuizResponse)
+def generate_quiz_sync(request: QuizRequest) -> QuizResponse:
+    """Synchronously generate a RAG-grounded quiz. Use for quick requests."""
+    result = quiz_pipeline.run(
+        content=request.content,
+        subject=request.subject,
+        grade_level=request.grade_level,
+        num_questions=request.num_questions,
+        difficulty=request.difficulty,
+        question_types=request.question_types,
+        retrieval_limit=request.retrieval_limit,
+        retrieval_mode=request.retrieval_mode,
+        retrieval_method=request.retrieval_method,
+    )
+    return QuizResponse(**result)
+
+
+def _run_quiz(job_id: str, request: QuizRequest) -> None:
+    """Background task that runs quiz generation and stores the result."""
+    try:
+        result = quiz_pipeline.run(
+            content=request.content,
+            subject=request.subject,
+            grade_level=request.grade_level,
+            num_questions=request.num_questions,
+            difficulty=request.difficulty,
+            question_types=request.question_types,
+            retrieval_limit=request.retrieval_limit,
+            retrieval_mode=request.retrieval_mode,
+            retrieval_method=request.retrieval_method,
+        )
+        _quiz_jobs[job_id] = {"status": "done", "result": result}
+    except Exception as e:
+        import traceback
+        print(f"QUIZ ERROR for job {job_id}:\n{traceback.format_exc()}")
+        _quiz_jobs[job_id] = {"status": "error", "error": str(e)}
+
+
+@app.post("/quiz/start")
+def start_quiz(request: QuizRequest, background_tasks: BackgroundTasks) -> dict:
+    """Start quiz generation in the background. Returns a job ID to poll."""
+    job_id = str(uuid4())
+    _quiz_jobs[job_id] = {"status": "processing"}
+    background_tasks.add_task(_run_quiz, job_id, request)
+    return {"job_id": job_id, "status": "processing"}
+
+
+@app.get("/quiz/status/{job_id}")
+def quiz_status(job_id: str) -> dict:
+    """Check the status of a quiz generation job."""
+    job = _quiz_jobs.get(job_id)
     if not job:
         return {"status": "not_found"}
     return {"job_id": job_id, **job}

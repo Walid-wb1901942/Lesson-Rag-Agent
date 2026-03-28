@@ -116,3 +116,29 @@ class TTSRequest(BaseModel):
 
     script: str
     engine: str = "edge"  # "edge" (fast) or "bark" (emotional)
+
+
+class QuizRequest(BaseModel):
+    """Request body for RAG-grounded quiz generation."""
+
+    content: str  # lesson objectives or raw educational text
+    subject: str | None = None
+    grade_level: str | None = None
+    num_questions: int = 5
+    difficulty: str = "Mixed"
+    question_types: str = "MCQ, Short Answer, Open-Ended"
+    retrieval_limit: int = 5
+    retrieval_mode: str = "auto"
+    retrieval_method: str = "dense"
+
+
+class QuizResponse(BaseModel):
+    """Response body for a generated quiz with citations and trace."""
+
+    content: str
+    generation_mode: str
+    source_notice: str
+    retrieved_chunks: list[dict]
+    quiz_text: str
+    citations: list[Citation] = []
+    agent_trace: list[dict]
