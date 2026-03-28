@@ -65,6 +65,8 @@ def retrieve_chunks(
             query=query,
             query_vector=query_vector,
             query_filter=query_filter,
+            subject=subject if use_filters else None,
+            grade_level=grade_level if use_filters else None,
             limit=limit,
             client=client,
         )
@@ -84,6 +86,8 @@ def _hybrid_retrieve(
     query: str,
     query_vector: list[float],
     query_filter,
+    subject: str | None,
+    grade_level: str | None,
     limit: int,
     client,
 ) -> list[dict]:
@@ -91,12 +95,15 @@ def _hybrid_retrieve(
 
     Fetches `limit * 3` candidates from each method so the merged top-`limit`
     results are drawn from a wider pool.
+
+    BM25-only candidates are filtered by subject/grade_level to prevent
+    unrelated subject documents from entering the pool via keyword matching.
     """
     from app.services.bm25_index import get_bm25_index
 
     fetch_k = limit * 3
 
-    # 1. Dense retrieval — broader candidate set
+    # 1. Dense retrieval — broader candidate set (Qdrant filter applied here)
     dense_results = client.query_points(
         collection_name=settings.QDRANT_COLLECTION,
         query=query_vector,
@@ -112,12 +119,12 @@ def _hybrid_retrieve(
         dense_ids.append(chunk_id)
         id_to_chunk[chunk_id] = _point_to_chunk(point, point.score)
 
-    # 2. BM25 retrieval
+    # 2. BM25 retrieval — searches full corpus, filter applied below
     bm25_index = get_bm25_index()
     bm25_hits = bm25_index.search(query, top_k=fetch_k)
     bm25_ids = [cid for cid, _ in bm25_hits]
 
-    # 3. Fetch payloads for BM25-only hits not already in dense results
+    # 3. Fetch payloads for BM25-only hits and apply subject/grade filter
     bm25_only_ids = [cid for cid in bm25_ids if cid not in id_to_chunk]
     if bm25_only_ids:
         fetched = client.retrieve(
@@ -128,6 +135,18 @@ def _hybrid_retrieve(
         )
         for point in fetched:
             chunk_id = str(point.id)
+            payload = point.payload or {}
+            # Skip BM25-only hits that don't match the subject/grade filter
+            if subject and payload.get("subject") != subject:
+                continue
+            if grade_level:
+                stored_grade = payload.get("grade_level")
+                # grade_level may be stored as a list or a string
+                if isinstance(stored_grade, list):
+                    if grade_level not in stored_grade:
+                        continue
+                elif stored_grade != grade_level:
+                    continue
             id_to_chunk[chunk_id] = _point_to_chunk(point, 0.0)
 
     # 4. Reciprocal Rank Fusion

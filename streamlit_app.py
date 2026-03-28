@@ -353,6 +353,7 @@ if st.session_state.current_script:
                 score = chunk.get("score", 0)
                 title = meta.get("title", "Untitled")
                 pages = meta.get("page_range") or meta.get("page_number") or "N/A"
-                st.markdown(f"**[Source {i}]** {title} (pp. {pages}) \u2014 Score: {score:.3f}")
+                score_label = f"{score:.4f} (RRF)" if score < 0.1 else f"{score:.3f}"
+                st.markdown(f"**[Source {i}]** {title} (pp. {pages}) \u2014 Score: {score_label}")
                 st.markdown(chunk.get("text", "")[:300] + "...")
                 st.divider()
