@@ -1,12 +1,14 @@
 """Lazy-loaded BM25 index built from the full Qdrant corpus.
 
-The index is built once on first access and cached in memory for the process
-lifetime.  Call `invalidate_bm25_index()` if the corpus changes and you need
-the index rebuilt.
+The index is built once on first access, persisted to disk, and reloaded on
+subsequent server restarts.  Call `invalidate_bm25_index()` if the corpus
+changes and you need the index rebuilt from Qdrant.
 """
 from __future__ import annotations
 
 import logging
+import pickle
+from pathlib import Path
 from threading import Lock
 
 from rank_bm25 import BM25Okapi
@@ -18,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 _lock: Lock = Lock()
 _instance: BM25Index | None = None
+
+_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "processed" / "bm25_index.pkl"
 
 
 class BM25Index:
@@ -67,17 +71,52 @@ def _build_index() -> BM25Index:
 
 
 def get_bm25_index() -> BM25Index:
-    """Return the singleton BM25 index, building it on first access."""
+    """Return the singleton BM25 index.
+
+    On first access within a process, tries to load from the on-disk cache.
+    If no cache exists, builds from Qdrant and saves to disk for future restarts.
+    """
     global _instance
     if _instance is None:
         with _lock:
             if _instance is None:
-                _instance = _build_index()
+                if _CACHE_PATH.exists():
+                    try:
+                        with open(_CACHE_PATH, "rb") as f:
+                            _instance = pickle.load(f)
+                        logger.info("BM25 index loaded from cache (%d chunks)", _instance.size)
+                    except Exception as exc:
+                        logger.warning("BM25 cache load failed (%s); rebuilding from Qdrant", exc)
+                        _instance = _build_index()
+                        _save_cache(_instance)
+                else:
+                    _instance = _build_index()
+                    _save_cache(_instance)
     return _instance
 
 
+def _save_cache(index: BM25Index) -> None:
+    """Persist the BM25 index to disk."""
+    try:
+        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(_CACHE_PATH, "wb") as f:
+            pickle.dump(index, f)
+        logger.info("BM25 index saved to cache (%s)", _CACHE_PATH)
+    except Exception as exc:
+        logger.warning("BM25 cache save failed: %s", exc)
+
+
 def invalidate_bm25_index() -> None:
-    """Discard the cached index so it will be rebuilt on next access."""
+    """Discard the in-memory index and delete the on-disk cache.
+
+    The index will be rebuilt from Qdrant on the next access.
+    """
     global _instance
     with _lock:
         _instance = None
+        if _CACHE_PATH.exists():
+            try:
+                _CACHE_PATH.unlink()
+                logger.info("BM25 cache deleted")
+            except Exception as exc:
+                logger.warning("BM25 cache delete failed: %s", exc)

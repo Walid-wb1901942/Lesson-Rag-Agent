@@ -31,11 +31,19 @@ def list_pdfs(folder: Path) -> list[Path]:
 def infer_subject(name: str) -> str | None:
     """Infer the academic subject from a PDF filename."""
     lower = name.lower()
-    if any(kw in lower for kw in ("math", "integral", "algebra", "calculus", "geometry", "quadratic", "trigonometry")):
+    if any(kw in lower for kw in ("math", "integral", "algebra", "calculus", "geometry", "quadratic", "trigonometry", "precalculus")):
         return "mathematics"
     if any(kw in lower for kw in ("english", "literature", "poetry", "grammar")):
         return "literature"
-    if any(kw in lower for kw in ("science", "biology", "chemistry", "physics")):
+    if "chemistry" in lower:
+        return "chemistry"
+    if "biology" in lower:
+        return "biology"
+    if "physics" in lower:
+        return "physics"
+    if "computer science" in lower or "programming" in lower:
+        return "computer science"
+    if "science" in lower:
         return "science"
     if "health" in lower:
         return "health"

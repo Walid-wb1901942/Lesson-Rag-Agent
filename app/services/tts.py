@@ -221,11 +221,37 @@ def _preprocess_for_speech(text: str) -> str:
     return text
 
 
+# Matches sentence-ending punctuation (with optional closing quote) followed by whitespace.
+# Uses a capturing group instead of a lookbehind to avoid variable-width lookbehind errors.
+_SENTENCE_BOUNDARY_RE = re.compile(r'([.!?]["\']?)\s+')
+
+
+def _split_at_sentence_boundary(text: str, max_chars: int) -> tuple[str, str]:
+    """Split text into (head, tail) where head is at most max_chars long.
+
+    Splits at the last sentence boundary before max_chars.  Falls back to the
+    last whitespace if no sentence boundary is found.
+    """
+    if len(text) <= max_chars:
+        return text, ""
+    window = text[:max_chars]
+    last_end = -1
+    for m in _SENTENCE_BOUNDARY_RE.finditer(window):
+        last_end = m.end(1)  # position after punctuation+quote, before the whitespace
+    if last_end > 0:
+        return text[:last_end].strip(), text[last_end:].strip()
+    last_space = window.rfind(" ")
+    if last_space > 0:
+        return text[:last_space].strip(), text[last_space:].strip()
+    return window, text[max_chars:]
+
+
 async def _async_generate_edge_chunked(segments: list[dict], mp3_path: str) -> None:
     """Generate audio segment-by-segment and concatenate MP3 bytes.
 
     This avoids Edge-TTS skipping content when text is too long, and
-    preserves actual pause durations between speech segments.
+    preserves actual pause durations between speech segments.  Chunks are split
+    at sentence boundaries so Edge-TTS never cuts a word or sentence in half.
     """
     import edge_tts
 
@@ -244,14 +270,24 @@ async def _async_generate_edge_chunked(segments: list[dict], mp3_path: str) -> N
         else:
             continue
 
-        if len(current_chunk) + len(piece) > MAX_CHUNK and current_chunk.strip():
-            chunks.append(current_chunk.strip())
-            current_chunk = piece
+        combined = current_chunk + piece
+        if len(combined) > MAX_CHUNK and current_chunk.strip():
+            # Flush current_chunk at a sentence boundary
+            head, tail = _split_at_sentence_boundary(current_chunk.strip(), MAX_CHUNK)
+            chunks.append(head)
+            # Any tail left over from splitting becomes the start of the next chunk
+            current_chunk = (tail + " " + piece.strip()).strip() + " " if tail else piece
         else:
-            current_chunk += piece
+            current_chunk = combined
 
-    if current_chunk.strip():
-        chunks.append(current_chunk.strip())
+    # Flush remainder, splitting oversized final chunks at sentence boundaries
+    remaining = current_chunk.strip()
+    while remaining:
+        if len(remaining) <= MAX_CHUNK:
+            chunks.append(remaining)
+            break
+        head, remaining = _split_at_sentence_boundary(remaining, MAX_CHUNK)
+        chunks.append(head)
 
     # Generate each chunk separately and concatenate raw MP3 bytes
     all_audio = b""

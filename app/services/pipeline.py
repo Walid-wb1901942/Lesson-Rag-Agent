@@ -49,8 +49,25 @@ WORDS_PER_MINUTE = 95
 DENSITY_FLOOR = 0.35
 DENSITY_CEILING = 1.5
 SUBJECT_KEYWORDS = {
-    "mathematics": ("math", "mathematics", "algebra", "calculus", "geometry", "integral", "quadratic", "equation", "trigonometry"),
-    "science": ("science", "biology", "chemistry", "physics", "ecosystem"),
+    "mathematics": (
+        "math", "mathematics", "algebra", "calculus", "geometry",
+        "integral", "quadratic", "equation", "trigonometry", "precalculus",
+    ),
+    "chemistry": (
+        "chemistry", "atomic number", "atomic mass", "molecule",
+        "bond", "element", "compound", "periodic table", "atom",
+    ),
+    "biology": (
+        "biology", "cell", "organism", "genetics", "evolution",
+        "ecosystem", "photosynthesis", "dna",
+    ),
+    "physics": (
+        "physics", "force", "energy", "velocity", "motion",
+        "momentum", "gravity", "thermodynamics",
+    ),
+    "computer science": ("computer science", "programming", "coding", "algorithm"),
+    "data science": ("data science",),
+    "science": ("science",),  # generic fallback for unspecified science
     "literature": ("literature", "english", "poetry", "novel", "grammar"),
     "health": ("health", "wellness", "nutrition", "hygiene"),
 }
@@ -1192,9 +1209,6 @@ Current draft:
 
     def _build_default_title(self, user_prompt: str, subject: str | None) -> str:
         """Generate a default lesson title from the prompt or subject."""
-        lower = user_prompt.lower()
-        if "integral" in lower:
-            return "Introduction to Integrals"
         if subject:
             return f"{subject.title()} Lesson Script"
         return "Lesson Script"

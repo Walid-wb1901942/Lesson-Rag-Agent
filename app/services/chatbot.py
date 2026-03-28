@@ -121,14 +121,15 @@ def _find_missing_blocks(
 
 
 def _reassemble_script(parts: list[dict]) -> str:
-    """Reassemble parsed script parts back into a full script string."""
+    """Reassemble parsed script parts back into a full script string.
+
+    Footer sections (Exit Ticket, Homework, Teacher Notes, Sources Used) are
+    intentionally excluded — they are no longer part of the generated script
+    format and would be stripped by normalize_lesson_text anyway.
+    """
     sections = []
     for part in parts:
-        if part["type"] == "header":
-            sections.append(part["text"])
-        elif part["type"] == "block":
-            sections.append(part["text"])
-        elif part["type"] == "footer":
+        if part["type"] in ("header", "block"):
             sections.append(part["text"])
     return "\n\n".join(sections)
 
