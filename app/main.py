@@ -4,13 +4,13 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, FastAPI, Response
 from fastapi.responses import FileResponse
 
-from app.schemas import LessonChatRequest, LessonChatResponse, LessonRequest, LessonResponse, TTSRequest
+from app.schemas import LessonChatRequest, LessonRequest, LessonResponse, TTSRequest
 from app.services.pipeline import ScriptPipeline
 from app.services.chatbot import LessonScriptChatbot
 
 app = FastAPI(
     title="Lesson RAG Agent API",
-    description="API for generating educational lessons with RAG and agent orchestration.",
+    description="API for generating educational lessons with RAG.",
     version="0.1.0",
 )
 
@@ -59,21 +59,46 @@ def generate_lesson(request: LessonRequest) -> LessonResponse:
     return run_agent(request)
 
 
-@app.post("/chat/script", response_model=LessonChatResponse)
-def chat_script(request: LessonChatRequest) -> LessonChatResponse:
-    """Chat-style endpoint for generating and revising lesson scripts."""
-    result = chatbot.chat(
-        message=request.message,
-        current_script=request.current_script,
-        original_request=request.original_request,
-        subject=request.subject,
-        grade_level=request.grade_level,
-        topic=request.topic,
-        retrieval_limit=request.retrieval_limit,
-        retrieval_mode=request.retrieval_mode,
-        retrieval_method=request.retrieval_method,
-    )
-    return LessonChatResponse(**result)
+_script_jobs: dict[str, dict] = {}
+
+
+def _run_script(job_id: str, request: LessonChatRequest):
+    """Background task that runs chatbot generation and stores the result."""
+    try:
+        result = chatbot.chat(
+            message=request.message,
+            current_script=request.current_script,
+            original_request=request.original_request,
+            subject=request.subject,
+            grade_level=request.grade_level,
+            topic=request.topic,
+            retrieval_limit=request.retrieval_limit,
+            retrieval_mode=request.retrieval_mode,
+            retrieval_method=request.retrieval_method,
+        )
+        _script_jobs[job_id] = {"status": "done", "result": result}
+    except Exception as e:
+        import traceback
+        print(f"SCRIPT ERROR for job {job_id}:\n{traceback.format_exc()}")
+        _script_jobs[job_id] = {"status": "error", "error": str(e)}
+
+
+@app.post("/chat/script")
+def chat_script(request: LessonChatRequest, background_tasks: BackgroundTasks) -> dict:
+    """Start script generation in the background. Returns a job ID to poll."""
+    job_id = str(uuid4())[:8]
+    _script_jobs[job_id] = {"status": "processing"}
+    background_tasks.add_task(_run_script, job_id, request)
+    return {"job_id": job_id, "status": "processing"}
+
+
+@app.get("/chat/status/{job_id}")
+def chat_status(job_id: str) -> dict:
+    """Check the status of a script generation job."""
+    job = _script_jobs.get(job_id)
+    if not job:
+        return {"status": "not_found"}
+    return {"job_id": job_id, **job}
 
 
 # ---- TTS Audio Generation ----

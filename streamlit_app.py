@@ -123,7 +123,7 @@ _NEW_SCRIPT_KEYWORDS = (
 
 
 def call_chat_api(message: str) -> tuple[dict | None, str]:
-    """Send a message to the chat/script endpoint.
+    """Submit a script generation job and poll until complete.
 
     Returns (result, effective_message) where effective_message is the actual
     message sent to the API (may include injected duration suffix).
@@ -155,13 +155,27 @@ def call_chat_api(message: str) -> tuple[dict | None, str]:
             payload["message"] = message
 
     try:
-        resp = requests.post(
-            f"{API_BASE}/chat/script",
-            json=payload,
-            timeout=1200,
-        )
+        # Submit the job — returns immediately with a job_id
+        resp = requests.post(f"{API_BASE}/chat/script", json=payload, timeout=30)
         resp.raise_for_status()
-        return resp.json(), message
+        job_id = resp.json()["job_id"]
+
+        # Poll until done
+        progress = st.progress(0, text="Generating script...")
+        for i in range(300):  # up to 15 minutes (3s × 300)
+            time.sleep(3)
+            status_resp = requests.get(f"{API_BASE}/chat/status/{job_id}", timeout=10)
+            status = status_resp.json()
+            progress.progress(min((i + 1) * 1, 95), text="Generating script...")
+            if status["status"] == "done":
+                progress.progress(100, text="Done!")
+                return status["result"], message
+            if status["status"] == "error":
+                st.error(f"Generation failed: {status.get('error', 'Unknown error')}")
+                return None, message
+        st.warning("Generation timed out after 15 minutes.")
+        return None, message
+
     except requests.ConnectionError:
         st.error("Cannot connect to backend. Is it running?")
         return None, message
@@ -234,8 +248,7 @@ if prompt := st.chat_input("Describe the lesson you want..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Generating lesson script..." if not st.session_state.current_script else "Revising script..."):
-            result, sent_message = call_chat_api(prompt)
+        result, sent_message = call_chat_api(prompt)
 
         if result:
             chat_mode = result.get("chat_mode", "")
