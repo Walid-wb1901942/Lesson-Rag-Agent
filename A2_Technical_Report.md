@@ -24,7 +24,62 @@ A2 addresses this limitation by introducing RAG: before generation, the system r
 
 ---
 
-## II. System Architecture
+## II. Enhancement Proposal
+
+### A. A1 Application Summary
+
+Assignment 1 built an AI-Powered Quiz and Assessment Generator using prompt engineering only. Given lesson objectives as input, the system generated structured quiz questions (MCQ, Short Answer, Open-Ended) with Bloom's Taxonomy tags and difficulty levels. Three prompt variants were tested — Zero-Shot, Few-Shot, and Chain-of-Thought — with the final best prompt (`PROMPT_FINAL`) combining CoT reasoning with an Input Quality Gate that rejects vague inputs.
+
+What worked well in A1:
+
+- The CoT prompt produced well-structured, pedagogically sound questions with consistent Bloom's tagging
+- Grade-level adaptation worked correctly across Elementary through University
+- The Input Quality Gate correctly rejected or flagged vague inputs, preventing low-quality generation
+
+### B. Identified Limitations
+
+**Limitation 1 — No Source Grounding (critical)**
+The A1 system generates questions from general model knowledge with no connection to the actual textbooks used in the course. A question about atomic structure might be accurate in general but misaligned with the specific notation, definitions, or examples in the teacher's textbook. Evidence: all 15 A1 test cases show zero citations — the model drew on parametric knowledge without referencing any course material.
+
+**Limitation 2 — Hallucination Risk**
+Without retrieval, the model can confidently produce incorrect statements presented as fact. For technically precise subjects (chemistry, physics, mathematics), an incorrect answer key directly harms student learning. A distractor in TC05 (Python programming) contained subtly incorrect terminology that would not be caught without domain expert review.
+
+**Limitation 3 — No Traceability**
+Teachers cannot trace generated questions back to specific textbook pages, making it impossible to verify accuracy, point students to reading material, or confirm curriculum alignment. Every question is essentially a black box.
+
+### C. Track Selection: RAG
+
+#### Chosen Track: A — RAG Implementation
+
+RAG directly addresses all three limitations. By grounding generation in retrieved document chunks, the system:
+
+1. Produces questions based on actual course materials rather than general knowledge
+2. Reduces hallucination by constraining the model to provided context
+3. Enables per-question citations linking to specific textbook pages and chapters
+
+The existing Lesson RAG Agent infrastructure — 15 OpenStax textbooks indexed in Qdrant Cloud, `nomic-embed-text` embeddings via Ollama, and hybrid dense+BM25 retrieval — made Track A the natural choice. No new infrastructure needed to be built; only a quiz-specific pipeline and prompt layer were required on top.
+
+### D. Enhancement Plan
+
+| Component | Change |
+|---|---|
+| `QuizPipeline` | Retrieve relevant chunks → build grounded prompt → generate with citations |
+| `QuizPromptBuilder` | Adapt A1's PROMPT_FINAL to accept `[Source N]` context blocks |
+| FastAPI | Add `/quiz/generate`, `/quiz/start`, `/quiz/status/{id}` endpoints |
+| Streamlit | New `streamlit_quiz_app.py` with conversational clarification support |
+
+**Expected improvements:** Questions for in-corpus subjects will cite specific textbook pages. Groundedness (new metric) will increase from 1.0 to near-maximum for corpus topics. Alignment and quality should remain equal or improve.
+
+### E. Evaluation Strategy
+
+- Retain A1's 15 test cases as the baseline; add 10 new RAG-specific cases targeting in-corpus subjects
+- Score on 5 criteria: the original three (Alignment, Quality, Difficulty) plus two new (Groundedness, Citation Accuracy)
+- Compare A1 vs A2 across all 25 cases; focus analysis on the 10 corpus-targeted cases where RAG should provide the greatest benefit
+- Produce three visualizations: before/after bar chart, category heatmap, per-case groundedness chart
+
+---
+
+## III. System Architecture
 
 ### A. Document Corpus
 
