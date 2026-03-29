@@ -182,7 +182,7 @@ class QuizPipeline:
                 question_types=question_types,
             )
 
-        quiz_text = generate_text(prompt, num_predict=2048)
+        quiz_text = generate_text(prompt, num_predict=4096)
         trace.append({"tool": "generator", "generation_mode": generation_mode})
 
         # 6. Citations and references
