@@ -1,109 +1,102 @@
-# Lesson RAG Agent
+# RAG-Enhanced Quiz and Assessment Generator
 
-A Retrieval-Augmented Generation system that ingests educational PDFs and generates word-for-word classroom scripts grounded in real source material. Built with FastAPI, Ollama, and Qdrant.
+**CMPE 682/683/782/783 — Assignment 2 | Track A: RAG Implementation**
+**Authors:** Walid Ben Ali, Yahia Boray
+
+A Retrieval-Augmented Generation (RAG) system that generates curriculum-grounded quiz questions from lesson objectives, grounded in a corpus of 16 OpenStax textbooks (22,066 indexed chunks). Built with FastAPI, Ollama, Qdrant, and Streamlit.
+
+---
 
 ## Architecture
 
 ```
-+------------------+     +-------------------+     +------------------+
-|   PDF Documents  |     |   Streamlit /      |     |   FastAPI API    |
-|   (data/raw/)    |     |   Browser UI       |     |   (app/main.py)  |
-+--------+---------+     +--------+----------+     +--------+---------+
-         |                        |                          |
-         v                        v                          v
-+------------------+     +-------------------+     +------------------+
-|   Ingestion      |     |   LessonScript    |     |   Script         |
-|   Pipeline       |     |   Chatbot         |     |   Pipeline       |
-|                  |     | (app/services/    |     | (app/services/   |
-| 1. Load PDFs     |     |  chatbot.py)      |     |  pipeline.py)    |
-| 2. Clean text    |     +--------+----------+     +--------+---------+
-| 3. Chunk         |              |                          |
-| 4. Embed + Index |              v                          v
-+--------+---------+     +-------------------+     +------------------+
-         |               |   Prompt Builder  |     |   Retriever      |
-         v               | (app/services/    |     | (app/services/   |
-+------------------+     |  prompt_builder.py|     |  retriever.py)   |
-|   Qdrant Vector  |<--->+-------------------+     +--------+---------+
-|   Database       |              |                          |
-|                  |              v                          v
-+------------------+     +-------------------+     +------------------+
-                         |   Ollama LLM      |     |   Ollama         |
-                         |   (Generation)    |     |   (Embeddings)   |
-                         +-------------------+     +------------------+
+Teacher Input (Lesson Objectives)
+           |
+           v
+  [Subject Inference]  ← keyword matching
+           |
+     Subject in corpus?
+     /              \
+   Yes               No
+    |                 |
+    v                 v
+[Qdrant Retrieval]  [Fallback Mode]
+(dense or hybrid     (prompt-only,
+ dense+BM25+RRF)      no citations)
+    |
+    v
+[Prompt Construction]
+  [Source 1]...[Source N] injected
+  CoT + Input Quality Gate
+  Citation rule + Bloom's Taxonomy
+    |
+    v
+[Ollama Generation]  ← qwen3.5:27b (local)
+    |
+    v
+[Citation Extraction + References Footer]
+    |
+    v
+Grounded Quiz with [Source N] inline citations
 ```
 
-### Pipeline Flow
+### Component Map
 
 ```
-User Request
-    |
-    v
-[Domain Check] -- not education --> [Refuse]
-    |
-    v (education-related)
-[Auto-Resolve Retrieval Params]  (infer subject / grade / topic from prompt)
-    |
-    v
-[Retrieve Chunks from Qdrant]  (dense or hybrid dense+BM25 with RRF)
-    |
-    +--> chunks found (score >= threshold) --> [Grounded Mode]
-    |
-    +--> no matches / low score            --> [Fallback Mode]
-    |
-    v
-[Phased Generation]
-    |
-    v
-[1. Generate Outline] --> [2. Generate Block-by-Block] --> [3. Deduplicate]
-    |
-    v
-[4. Assemble Script + Citations + References]
-    |
-    v
-[5. Evaluate Quality]
-    |
-    v
-[Return Script with Source Attribution]
+app/
+├── main.py                        # FastAPI: /quiz/start, /quiz/status, /quiz/generate
+├── schemas.py                     # QuizRequest / QuizResponse Pydantic models
+└── services/
+    ├── quiz_pipeline.py           # Full RAG quiz pipeline (retrieve → prompt → generate)
+    ├── quiz_prompt_builder.py     # Grounded + fallback prompt templates (CoT + Input Gate)
+    ├── retriever.py               # Dense + hybrid BM25+RRF retrieval with metadata filters
+    ├── bm25_index.py              # Lazy-loaded BM25 singleton (persisted to disk)
+    ├── ollama_client.py           # Ollama API client (generate + embed)
+    └── qdrant_client.py           # Qdrant connection and collection management
+streamlit_quiz_app.py              # Streamlit frontend with conversational clarification
 ```
+
+---
 
 ## Features
 
-- **RAG-Grounded Generation** — Scripts are grounded in retrieved educational documents with inline `[Source N]` citations
-- **Hybrid Retrieval** — Dense vector search and BM25 lexical search merged with Reciprocal Rank Fusion (RRF); configurable top-k (k = 3, 5, 7)
-- **Phased Generation** — Outline first, then block-by-block to handle local model output limits
-- **Three Generation Modes** — Grounded (from sources), Fallback (general knowledge), Refuse (non-educational)
-- **Iterative Revision** — Chat-style interface for modifying generated scripts block-by-block
-- **Source Attribution** — Inline citations with a References section linking to source documents
-- **Text-to-Speech** — Generate audio from scripts using Edge TTS or Bark
-- **Auto Retrieval** — Infers subject, grade level, and topic from natural language prompts
-- **Metadata-Aware Ingestion** — PDF metadata (subject, grade, topic) extracted via heuristics or LLM
+- **RAG-Grounded Questions** — Questions drawn from retrieved OpenStax textbook passages with inline `[Source N]` citations
+- **Hybrid Retrieval** — Dense vector search + BM25 lexical search merged with Reciprocal Rank Fusion (RRF, k=60)
+- **Bloom's Taxonomy Tagging** — Each question maps to a cognitive level (Remember → Create)
+- **Conversational Clarification** — If input is vague, the app enters chat mode so the teacher can refine the request
+- **Fallback Mode** — Degrades gracefully to prompt-only generation when the topic is outside the corpus
+- **Three Question Types** — MCQ (with distractors), Short Answer, Open-Ended
+- **Download** — Export generated quiz as `.txt`
+
+---
 
 ## Tech Stack
 
-| Component          | Technology                                      |
-|--------------------|-------------------------------------------------|
-| Backend API        | FastAPI                                         |
-| LLM                | Ollama (qwen3.5:27b recommended; qwen2.5:7b for low-resource) |
-| Embeddings         | Ollama (nomic-embed-text or qwen3-embedding:0.6b) |
-| Vector Database    | Qdrant (Cloud or local Docker)                  |
-| Lexical Search     | BM25 (rank-bm25) merged with dense via RRF      |
-| Frontend           | Streamlit + HTML/JS chat UI                     |
-| TTS                | Edge TTS / Bark                                 |
-| Language           | Python 3.11+                                    |
+| Component | Technology |
+| --- | --- |
+| Backend API | FastAPI (async job pattern) |
+| LLM | Ollama — `qwen3.5:27b` (local, no API cost) |
+| Embeddings | Ollama — `nomic-embed-text` |
+| Vector Database | Qdrant Cloud |
+| Lexical Search | BM25 (`rank-bm25`) merged via RRF |
+| Frontend | Streamlit |
+| Language | Python 3.10+ |
+
+---
 
 ## Setup Instructions
 
 ### Prerequisites
 
-- Python 3.11+
-- [Ollama](https://ollama.ai/) installed and running
-- [Qdrant](https://qdrant.tech/) (Cloud account or local Docker instance)
+- Python 3.10+
+- [Ollama](https://ollama.ai/) installed and running locally
+- [Qdrant Cloud](https://qdrant.tech/) account (free tier works)
 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/lesson-rag-agent.git
-cd lesson-rag-agent
+git clone https://github.com/Walid-wb1901942/Lesson-Rag-Agent.git
+cd Lesson-Rag-Agent
 ```
 
 ### 2. Create Virtual Environment
@@ -127,208 +120,169 @@ pip install -r requirements.txt
 ### 4. Pull Ollama Models
 
 ```bash
-# Generation model — use a larger model if your hardware allows
-ollama pull qwen2.5:7b
-
-# Embedding model
-ollama pull nomic-embed-text
+ollama pull qwen3.5:27b        # generation model
+ollama pull nomic-embed-text   # embedding model
 ```
 
 ### 5. Configure Environment
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your settings:
+Create a `.env` file (copy from `.env.example`):
 
 ```env
 OLLAMA_BASE_URL=http://localhost:11434/api
-OLLAMA_GENERATION_MODEL=qwen2.5:7b
+OLLAMA_GENERATION_MODEL=qwen3.5:27b
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+
 QDRANT_URL=https://your-cluster.cloud.qdrant.io
-QDRANT_API_KEY=your_api_key
+QDRANT_API_KEY=your_api_key_here
 QDRANT_COLLECTION=lesson_docs
+
 CHUNK_SIZE_TOKENS=512
 CHUNK_OVERLAP_TOKENS=100
+TOPIC_DEFAULT=general
+LANGUAGE_DEFAULT=en
+EMBEDDING_BATCH_SIZE=64
+QDRANT_UPSERT_BATCH_SIZE=128
 ```
 
-### 6. Add Source Documents
+### 6. (Optional) Ingest Your Own Documents
 
-Place educational PDFs in `data/raw/` and add entries to `data/raw/metadata.json`:
-
-```json
-{
-  "Algebra_1.pdf": {
-    "title": "Algebra 1 Textbook",
-    "subject": "mathematics",
-    "grade_level": "8",
-    "topic": "algebra",
-    "source_type": "textbook",
-    "language": "en"
-  }
-}
-```
-
-To auto-generate metadata suggestions using the LLM:
+Place PDFs in `data/raw/`, add entries to `data/raw/metadata.json`, then run:
 
 ```bash
-python -m app.ingestion.metadata_tools --write-llm-template
-```
-
-### 7. Run Ingestion
-
-```bash
-# Ingest all PDFs
 python -m app.ingestion.run_ingestion
-
-# Ingest a single PDF
-python -m app.ingestion.run_ingestion --pdf data/raw/your_file.pdf
-
-# Reindex an existing PDF (removes old chunks first)
-python -m app.ingestion.run_ingestion --pdf data/raw/your_file.pdf --reindex
 ```
 
-### 8. Start the Application
+The pre-built corpus (16 OpenStax textbooks, 22,066 chunks) is already indexed in Qdrant Cloud and does not need to be re-ingested.
 
-**FastAPI backend:**
+### 7. Start the Backend
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-API runs at `http://localhost:8000` with a built-in chat UI at `/` and Swagger docs at `/docs`.
+API runs at `http://localhost:8000`. Swagger docs at `http://localhost:8000/docs`.
 
-**Streamlit frontend:**
+### 8. Start the Quiz App
 
 ```bash
-streamlit run streamlit_app.py
+streamlit run streamlit_quiz_app.py
 ```
 
-Runs at `http://localhost:8501` — requires the FastAPI backend to be running.
+Runs at `http://localhost:8501`. Requires the FastAPI backend to be running.
+
+---
 
 ## API Endpoints
 
-| Method | Endpoint              | Description                                               |
-|--------|-----------------------|-----------------------------------------------------------|
-| POST   | `/agent/run`          | Generate a lesson script (synchronous)                    |
-| POST   | `/lessons/generate`   | Alias for `/agent/run`                                    |
-| POST   | `/chat/script`        | Submit generation job — returns `{"job_id": "..."}` immediately |
-| GET    | `/chat/status/{id}`   | Poll job status (`processing` / `done` / `error`) + result |
-| POST   | `/tts/generate`       | Start text-to-speech audio generation                     |
-| GET    | `/tts/status/{id}`    | Check TTS job status                                      |
-| GET    | `/tts/download/{id}`  | Download generated audio file                             |
-| GET    | `/health`             | Health check                                              |
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/quiz/start` | Submit async quiz job — returns `{"job_id": "..."}` |
+| `GET` | `/quiz/status/{job_id}` | Poll job status (`processing` / `done` / `error`) |
+| `POST` | `/quiz/generate` | Synchronous quiz generation (small requests) |
+| `GET` | `/health` | Health check |
 
-### Example Request
+### Example
 
 ```bash
-# Step 1 — submit the job
-curl -X POST http://localhost:8000/chat/script \
+# Submit job
+curl -X POST http://localhost:8000/quiz/start \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "Create a 20-minute lesson on quadratic equations for grade 8",
-    "retrieval_limit": 5,
+    "content": "Students will understand atomic structure: protons, neutrons, electrons, atomic number, mass number, and isotopes.",
+    "subject": "chemistry",
+    "grade_level": "High School",
+    "num_questions": 5,
+    "difficulty": "Mixed",
+    "question_types": "MCQ, Short Answer, Open-Ended",
     "retrieval_method": "hybrid"
   }'
-# Returns: {"job_id": "a1b2c3d4", "status": "processing"}
+# Returns: {"job_id": "...", "status": "processing"}
 
-# Step 2 — poll until done
-curl http://localhost:8000/chat/status/a1b2c3d4
-# Returns: {"job_id": "...", "status": "done", "result": {...}}
+# Poll result
+curl http://localhost:8000/quiz/status/<job_id>
 ```
 
-### Request Parameters (`/chat/script`)
+### Request Parameters
 
-| Parameter          | Type    | Default    | Description                                              |
-|--------------------|---------|------------|----------------------------------------------------------|
-| `message`          | string  | required   | Natural language lesson request                          |
-| `subject`          | string  | auto       | Override inferred subject                                |
-| `grade_level`      | string  | auto       | Override inferred grade                                  |
-| `retrieval_limit`  | int     | 5          | Number of chunks to retrieve (3, 5, or 7 recommended)   |
-| `retrieval_mode`   | string  | `"auto"`   | `"auto"`, `"filtered"`, or `"all"`                       |
-| `retrieval_method` | string  | `"dense"`  | `"dense"` (cosine only) or `"hybrid"` (dense + BM25 RRF) |
-| `current_script`   | string  | null       | Existing script to revise (revision mode)                |
-| `original_request` | string  | null       | Original prompt used to generate `current_script`        |
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `content` | string | required | Lesson objectives or content description |
+| `subject` | string | auto-detect | Subject override |
+| `grade_level` | string | null | Grade level override |
+| `num_questions` | int | 5 | Number of questions (3–15) |
+| `difficulty` | string | `"Mixed"` | `"Easy"`, `"Medium"`, `"Hard"`, `"Mixed"` |
+| `question_types` | string | `"MCQ, Short Answer, Open-Ended"` | Comma-separated list |
+| `retrieval_limit` | int | 5 | Top-k chunks to retrieve |
+| `retrieval_mode` | string | `"auto"` | `"auto"`, `"filtered"`, `"all"` |
+| `retrieval_method` | string | `"dense"` | `"dense"` or `"hybrid"` |
 
-## Project Structure
+---
 
-```
-lesson-rag-agent/
-├── app/
-│   ├── main.py                  # FastAPI application and endpoints
-│   ├── config.py                # Environment settings (from .env)
-│   ├── schemas.py               # Pydantic request/response models
-│   ├── services/
-│   │   ├── pipeline.py          # Script generation pipeline (domain check, retrieval, generation)
-│   │   ├── chatbot.py           # Conversational script generation and revision
-│   │   ├── prompt_builder.py    # All LLM prompt templates and citation formatting
-│   │   ├── retriever.py         # Dense + hybrid retrieval with metadata filtering
-│   │   ├── bm25_index.py        # Lazy-loaded BM25 index for hybrid search
-│   │   ├── ollama_client.py     # Ollama API client (generate + embed)
-│   │   ├── qdrant_client.py     # Qdrant connection and collection management
-│   │   └── tts.py               # Text-to-speech generation (Edge TTS / Bark)
-│   ├── ingestion/
-│   │   ├── run_ingestion.py     # CLI entry point for document ingestion
-│   │   ├── load_docs.py         # PDF loading with page markers and metadata merging
-│   │   ├── clean_docs.py        # Text cleaning and junk page removal
-│   │   ├── chunk_docs.py        # Structure-aware chunking (512 tokens, 100 overlap)
-│   │   ├── index_docs.py        # Embedding and Qdrant indexing
-│   │   └── metadata_tools.py    # Metadata inference (heuristic + LLM)
-│   └── static/
-│       └── index.html           # Built-in browser chat UI
-├── data/
-│   └── raw/                     # Source PDFs and metadata.json
-├── tests/
-│   ├── test_pipeline.py         # Script pipeline smoke test
-│   ├── test_api.py              # FastAPI endpoint smoke test
-│   ├── test_chatbot_api.py      # Chat endpoint smoke test
-│   ├── test_embeddings.py       # Embedding smoke test
-│   ├── test_frontend.py         # Frontend smoke test
-│   ├── test_generate_lesson.py  # End-to-end generation smoke test
-│   ├── test_index_qdrant.py     # Qdrant indexing smoke test
-│   ├── test_refusal_mode.py     # Domain refusal smoke test
-│   ├── test_retrieval.py        # Retrieval smoke test
-│   └── test_single_pdf_reindex.py # Single PDF reindex smoke test
-├── streamlit_app.py             # Streamlit frontend
-├── requirements.txt             # Python dependencies
-├── .env.example                 # Environment template
-└── README.md
-```
+## Document Corpus
+
+| Subject | Books | Chunks |
+| --- | --- | --- |
+| Mathematics | Precalculus 2e, Algebra 1, College Algebra 2e, Algebra & Trigonometry 2e, Calculus Vol. 1–3 | 5,078 |
+| Physics | College Physics 2e, Physics (OpenStax) | 4,151 |
+| Biology | Biology 2e, Concepts of Biology | 3,773 |
+| Chemistry | Chemistry 2e, Chemistry: Atoms First 2e | 3,593 |
+| Computer Science | Intro to CS, Intro to Python | 1,927 |
+| Data Science | Principles of Data Science | 802 |
+| **Total** | **16 books** | **22,066 chunks** |
+
+---
 
 ## Key Design Decisions
 
-1. **Phased generation over one-shot** — Local models (4–27B parameters) cannot reliably generate 3000+ word scripts in a single call. The system generates an outline, then fills each time block individually (up to 30 minutes per LLM call at 8192 tokens), and assembles the result.
+1. **Local model (no API cost)** — Both baseline (A1) and RAG-enhanced (A2) systems use `qwen3.5:27b` via Ollama. This isolates retrieval as the sole experimental variable and eliminates API costs and rate limits.
 
-2. **Hybrid retrieval with RRF** — Dense vector search captures semantic similarity; BM25 captures exact lexical matches (e.g. specific formulas or topic names). Reciprocal Rank Fusion (k=60) merges both ranked lists without needing score normalisation.
+2. **Hybrid retrieval with RRF** — Dense vector search captures semantic similarity; BM25 captures exact lexical matches (e.g. "atomic number", "photosynthesis"). Reciprocal Rank Fusion (k=60) merges both ranked lists without score normalisation.
 
-3. **Three-layer deduplication** — Local models tend to repeat content. The system applies within-block, cross-block, and full-script paragraph-level deduplication using fuzzy matching (SequenceMatcher ratio > 0.85).
+3. **Auto subject inference** — The pipeline infers subject from content keywords and checks whether that subject exists in the Qdrant corpus before retrieval. If not found, it skips retrieval and falls back to prompt-only generation rather than retrieving irrelevant chunks.
 
-4. **Citation system** — When generation is grounded in retrieved chunks, the LLM is instructed to cite sources inline as `[Source 1]`, `[Source 2]`. A References section with source metadata is appended to the script.
+4. **Conversational clarification** — When the model requests more detail (detected by regex on the output), the Streamlit app switches to a chat-input mode. The user's reply is merged with the original content and re-submitted.
 
-5. **Auto retrieval mode** — Instead of requiring users to specify subject/grade/topic, the system infers these from the natural language prompt and picks the best retrieval strategy automatically (filtered → all → skip).
+5. **Async job pattern** — `/quiz/start` returns a `job_id` immediately; the frontend polls `/quiz/status/{job_id}` every 2 seconds. This prevents timeout errors on long generation requests.
 
-6. **Block-level revision** — When a user requests changes, only the affected time blocks are regenerated rather than the entire script, yielding 4–8× faster revisions.
+---
 
-7. **Async job pattern** — `POST /chat/script` returns a `job_id` immediately; the frontend polls `GET /chat/status/{job_id}`. This prevents proxy/tunnel timeout errors (e.g. Cloudflare 524) on generation requests that take several minutes.
+## Evaluation Results (25 Test Cases)
 
-8. **Correct nomic-embed-text prefixes** — Documents are indexed with `"search_document: "` and queries use `"search_query: "` — the task-specific prefixes for `nomic-embed-text`. Using the wrong prefix spaces documents and queries in different vector spaces, collapsing cosine similarity scores to near-zero.
+| Criterion | A1 (no RAG) | A2 (RAG) | Δ |
+| --- | :---: |:---:| :---: |
+| Objective Alignment | 4.56 | 4.40 | −0.16 |
+| Question Quality | 4.12 | 4.36 | +0.24 |
+| Difficulty Appropriateness | 4.52 | 4.52 | 0.00 |
+| **Groundedness** | **1.00** | **4.28** | **+3.28** |
+| **Citation Accuracy** | **1.00** | **4.16** | **+3.16** |
 
-## Running Smoke Tests
+All 10 RAG-specific test cases (TC16–TC25) achieved perfect Groundedness (5.00/5.00) with A2.
+See [`A2_BenAli_notebook.ipynb`](A2_BenAli_notebook.ipynb) for full evaluation and [`A2_Technical_Report.md`](A2_Technical_Report.md) for the IEEE-format report.
 
-```bash
-# Verify embeddings are working
-python -m tests.test_embeddings
+---
 
-# Verify retrieval is returning relevant chunks
-python -m tests.test_retrieval
+## Repository Structure
 
-# End-to-end lesson generation
-python -m tests.test_generate_lesson
-
-# Verify non-educational prompts are refused
-python -m tests.test_refusal_mode
-
-# API contract check
-python -m tests.test_api
+```
+Lesson-Rag-Agent/
+├── app/
+│   ├── main.py                      # FastAPI endpoints
+│   ├── config.py                    # Environment settings
+│   ├── schemas.py                   # Pydantic models (QuizRequest, QuizResponse)
+│   ├── services/
+│   │   ├── quiz_pipeline.py         # RAG quiz pipeline
+│   │   ├── quiz_prompt_builder.py   # Prompt templates (grounded + fallback)
+│   │   ├── retriever.py             # Dense + hybrid retrieval
+│   │   ├── bm25_index.py            # BM25 index (lazy-loaded, persisted)
+│   │   ├── ollama_client.py         # Ollama client
+│   │   └── qdrant_client.py         # Qdrant client
+│   └── ingestion/                   # PDF ingestion pipeline
+├── streamlit_quiz_app.py            # Quiz Streamlit frontend
+├── A2_BenAli_notebook.ipynb         # Assignment notebook (proposal + evaluation)
+├── A2_Technical_Report.md           # IEEE-format technical report
+├── requirements.txt                 # Python dependencies
+├── .env.example                     # Environment template
+├── .gitignore
+└── README.md
 ```
